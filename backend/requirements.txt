@@ -1,0 +1,86 @@
+# ==============================================================================
+# XRD Compound Identification and Analysis System
+# Backend Python Dependencies
+# ==============================================================================
+# Install with:
+#   pip install -r requirements.txt
+#
+# Python 3.10+ required.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Web framework & server
+# ------------------------------------------------------------------------------
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9        # Required for FastAPI file uploads
+
+# ------------------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------------------
+pydantic==2.7.1
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
+
+# ------------------------------------------------------------------------------
+# Data processing
+# ------------------------------------------------------------------------------
+pandas==2.2.2
+numpy==1.26.4
+
+# ------------------------------------------------------------------------------
+# Scientific / signal processing
+# ------------------------------------------------------------------------------
+scipy==1.13.0                  # Peak detection (find_peaks), Savitzky-Golay filter
+
+# ------------------------------------------------------------------------------
+# Crystallographic calculations
+# (Pure-Python; no system libraries needed)
+# ------------------------------------------------------------------------------
+# All d-spacing and Scherrer calculations are implemented in services/
+# using numpy/scipy — no external crystallography library required.
+
+# ------------------------------------------------------------------------------
+# Machine learning
+# ------------------------------------------------------------------------------
+scikit-learn==1.4.2            # Crystal system classifier, scaler, label encoder
+joblib==1.4.2                  # Model serialisation (.pkl files)
+
+# ------------------------------------------------------------------------------
+# Visualisation
+# ------------------------------------------------------------------------------
+matplotlib==3.8.4              # Static graph/overlay image generation
+plotly==5.22.0                 # Interactive charts (optional, served via frontend)
+kaleido==0.2.1                 # Plotly static image export (PNG/SVG)
+
+# ------------------------------------------------------------------------------
+# PDF report generation
+# ------------------------------------------------------------------------------
+reportlab==4.1.0               # PDF creation with tables and embedded graphs
+
+# ------------------------------------------------------------------------------
+# Database
+# ------------------------------------------------------------------------------
+# SQLite is bundled with Python — no extra package needed.
+# Optional MongoDB driver (enable in config: MONGODB_ENABLED=true):
+pymongo==4.7.2                 # MongoDB client
+motor==3.4.0                   # Async MongoDB driver for FastAPI
+
+# ------------------------------------------------------------------------------
+# File handling & validation
+# ------------------------------------------------------------------------------
+aiofiles==23.2.1               # Async file I/O for FastAPI endpoints
+python-magic==0.4.27           # MIME-type detection for uploaded files
+
+# ------------------------------------------------------------------------------
+# Testing
+# ------------------------------------------------------------------------------
+pytest==8.2.0
+pytest-asyncio==0.23.6
+httpx==0.27.0                  # Async HTTP client for FastAPI TestClient
+
+# ------------------------------------------------------------------------------
+# Code quality (development only)
+# ------------------------------------------------------------------------------
+ruff==0.4.4                    # Linter & formatter
+mypy==1.10.0                   # Static type checking
