@@ -1,0 +1,100 @@
+# ============================================================
+# XRD Analysis System — .gitignore
+# ============================================================
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ----- Virtual environments -----
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# ----- Environment variables -----
+.env
+*.env.local
+*.env.*.local
+
+# ----- FastAPI / Uvicorn -----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ----- SQLite database (auto-generated at runtime) -----
+backend/database/sqlite/*.db
+backend/database/sqlite/*.db-shm
+backend/database/sqlite/*.db-wal
+
+# ----- Uploaded files (user data — never commit) -----
+backend/uploads/csv/
+backend/uploads/temp/
+backend/database/experimental_data/
+
+# ----- Generated reports / graphs -----
+backend/reports/pdf_reports/
+backend/reports/graphs/
+backend/reports/overlay_images/
+
+# ----- Trained ML model binaries -----
+backend/models/*.pkl
+backend/models/*.joblib
+
+# ----- Node / frontend -----
+node_modules/
+frontend/build/
+frontend/dist/
+frontend/.vite/
+.eslintcache
+
+# ----- OS -----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ----- IDE -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ----- Logs -----
+*.log
+logs/
+
+# ----- Coverage -----
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# ----- Jupyter -----
+.ipynb_checkpoints/
+*.ipynb

@@ -148,11 +148,12 @@ class GraphGenerator:
 
         fig, ax = plt.subplots(figsize=FIGURE_SIZE, dpi=FIGURE_DPI)
         markerline, stemlines, baseline = ax.stem(
-            angles, intensities, linefmt=f"{STANDARD_COLOR}-",
-            markerfmt=f"o", basefmt="k-",
+            angles, intensities, linefmt="r-",
+            markerfmt="o", basefmt="k-",
         )
+        # Apply exact hex colors after creation
         plt.setp(markerline, color=STANDARD_COLOR)
-        plt.setp(stemlines, linewidth=1.5)
+        plt.setp(stemlines, color=STANDARD_COLOR, linewidth=1.5)
 
         self._style_ax(
             ax,
@@ -164,7 +165,6 @@ class GraphGenerator:
         plt.close(fig)
         logger.info("Saved standard chart: %s", out_path)
         return out_path
-
     def _plot_overlay(self, df: pd.DataFrame, match: MatchResult, file_id: str) -> str:
         """Overlay of experimental pattern vs matched standard peaks."""
         fig, ax = plt.subplots(figsize=FIGURE_SIZE, dpi=FIGURE_DPI)

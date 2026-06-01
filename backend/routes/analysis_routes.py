@@ -122,6 +122,16 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
 
     # Persist results
     file_handler.save_analysis_result(file_id, analysis, pdf_path)
+    # Persist peaks
+    file_handler.save_peaks(file_id, [
+        {
+            "two_theta": round(float(r["two_theta"]), 4),
+            "intensity": round(float(r["intensity"]), 2),
+            "fwhm_deg": round(float(r["fwhm_deg"]), 4),
+            "prominence": round(float(r["prominence"]), 2),
+        }
+        for _, r in peaks_df.iterrows()
+    ])
 
     peaks_out = [
         PeakRow(
@@ -221,8 +231,40 @@ async def get_analysis(file_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No analysis found for file_id '{file_id}'. Run POST first.",
         )
-    return result
 
+    # Fetch peaks from the peaks table
+    peaks_raw = file_handler.get_peaks(file_id)
+    peaks_out = [
+        PeakRow(
+            two_theta=round(float(p["two_theta"]), 4),
+            intensity=round(float(p["intensity"]), 2),
+            fwhm_deg=round(float(p.get("fwhm_deg") or 0), 4),
+            prominence=round(float(p.get("prominence") or 0), 2),
+        )
+        for p in peaks_raw
+    ]
+
+    # matched_peaks are not stored separately — return empty list on GET
+    # (full matched_peaks are available via POST which re-runs the pipeline)
+    return AnalysisResponse(
+        file_id=file_id,
+        status="done",
+        compound_name=result.get("compound_name") or "",
+        formula=result.get("formula") or "",
+        crystal_system=result.get("crystal_system") or "",
+        space_group=result.get("space_group") or "",
+        confidence_score=float(result.get("confidence_score") or 0),
+        crystallite_size_nm=float(result.get("crystallite_size_nm") or 0),
+        mean_peak_shift_deg=float(result.get("mean_peak_shift_deg") or 0),
+        strain_indicator=str(result.get("strain_indicator") or ""),
+        detected_phases=result.get("detected_phases") or [],
+        peaks=peaks_out,
+        matched_peaks=[],
+        graph_experimental=result.get("graph_experimental") or "",
+        graph_standard=result.get("graph_standard") or "",
+        graph_overlay=result.get("graph_overlay") or "",
+        report_pdf=result.get("report_pdf") or "",
+    )
 
 @router.get(
     "/compounds",

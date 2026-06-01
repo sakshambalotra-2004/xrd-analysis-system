@@ -1,0 +1,22 @@
+{
+  "compound_name": "Zinc Oxide (Zincite)",
+  "formula": "ZnO",
+  "crystal_system": "Hexagonal",
+  "space_group": "P63mc",
+  "molecular_weight": 81.38,
+  "density_g_cm3": 5.61,
+  "color": "White / pale yellow",
+  "hardness_mohs": 4.5,
+  "notes": "Wurtzite crystal structure. Wide band-gap semiconductor used in UV LEDs, photocatalysis, and sensors.",
+  "peaks": [
+    { "two_theta": 31.77, "d": 2.81, "intensity": 57,  "h": 1, "k": 0, "l": 0 },
+    { "two_theta": 34.42, "d": 2.60, "intensity": 44,  "h": 0, "k": 0, "l": 2 },
+    { "two_theta": 36.25, "d": 2.48, "intensity": 100, "h": 1, "k": 0, "l": 1 },
+    { "two_theta": 47.54, "d": 1.91, "intensity": 23,  "h": 1, "k": 0, "l": 2 },
+    { "two_theta": 56.60, "d": 1.63, "intensity": 32,  "h": 1, "k": 1, "l": 0 },
+    { "two_theta": 62.86, "d": 1.48, "intensity": 29,  "h": 1, "k": 0, "l": 3 },
+    { "two_theta": 66.38, "d": 1.41, "intensity": 4,   "h": 2, "k": 0, "l": 0 },
+    { "two_theta": 67.96, "d": 1.38, "intensity": 23,  "h": 1, "k": 1, "l": 2 },
+    { "two_theta": 69.10, "d": 1.36, "intensity": 11,  "h": 2, "k": 0, "l": 1 }
+  ]
+}

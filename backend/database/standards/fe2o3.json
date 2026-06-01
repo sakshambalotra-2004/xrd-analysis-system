@@ -1,0 +1,22 @@
+{
+  "compound_name": "Iron(III) Oxide (Hematite)",
+  "formula": "Fe2O3",
+  "crystal_system": "Trigonal",
+  "space_group": "R-3c",
+  "molecular_weight": 159.69,
+  "density_g_cm3": 5.26,
+  "color": "Red-brown",
+  "hardness_mohs": 5.5,
+  "notes": "Alpha-Fe2O3 (hematite). Most stable iron oxide polymorph. Commonly found in soils and minerals.",
+  "peaks": [
+    { "two_theta": 24.14, "d": 3.68, "intensity": 30,  "h": 0, "k": 1, "l": 2 },
+    { "two_theta": 33.15, "d": 2.70, "intensity": 100, "h": 1, "k": 0, "l": 4 },
+    { "two_theta": 35.61, "d": 2.52, "intensity": 70,  "h": 1, "k": 1, "l": 0 },
+    { "two_theta": 40.85, "d": 2.21, "intensity": 20,  "h": 1, "k": 1, "l": 3 },
+    { "two_theta": 49.48, "d": 1.84, "intensity": 45,  "h": 0, "k": 2, "l": 4 },
+    { "two_theta": 54.09, "d": 1.69, "intensity": 55,  "h": 1, "k": 1, "l": 6 },
+    { "two_theta": 57.60, "d": 1.60, "intensity": 25,  "h": 0, "k": 1, "l": 8 },
+    { "two_theta": 62.45, "d": 1.49, "intensity": 40,  "h": 2, "k": 1, "l": 4 },
+    { "two_theta": 64.02, "d": 1.45, "intensity": 20,  "h": 3, "k": 0, "l": 0 }
+  ]
+}

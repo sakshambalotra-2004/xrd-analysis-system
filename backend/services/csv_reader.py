@@ -7,6 +7,7 @@ Responsibilities:
   - Accept a file path or raw bytes of an uploaded CSV
   - Validate column presence and data types
   - Normalise column names (strip whitespace, lowercase)
+  - Handle PANalytical XPERT-PRO exports with metadata header blocks
   - Return a clean pandas DataFrame ready for noise filtering
 
 Expected CSV columns (case-insensitive, flexible naming):
@@ -21,13 +22,12 @@ Usage:
     # df.columns → ["two_theta", "intensity"]
 """
 
+import io
 import logging
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +102,13 @@ class CSVReader:
         pd.DataFrame
             Same contract as :meth:`load`.
         """
-        import io
-
         logger.info("Parsing CSV bytes for file: %s", filename)
+
+        # Detect and skip PANalytical metadata header in bytes
+        skiprows = self._detect_header_rows_from_bytes(content)
+
         try:
-            raw = pd.read_csv(io.BytesIO(content))
+            raw = pd.read_csv(io.BytesIO(content), skiprows=skiprows)
         except Exception as exc:
             raise CSVReadError(f"Failed to parse CSV bytes: {exc}") from exc
 
@@ -119,14 +121,58 @@ class CSVReader:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _detect_header_rows(self, filepath: Path) -> int:
+        """
+        Scan the file for a PANalytical-style '[Scan points]' section marker.
+        Returns the number of rows to skip so that pd.read_csv starts at the
+        column-header line (e.g. 'Angle,Intensity').
+        Returns 0 if no such marker is found (plain CSV).
+        """
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                for i, line in enumerate(f):
+                    if line.strip() == "[Scan points]":
+                        # The next line is the column header row (Angle,Intensity),
+                        # so we skip everything up to and including [Scan points].
+                        return i + 1
+        except Exception:
+            pass
+        return 0
+
+    def _detect_header_rows_from_bytes(self, content: bytes) -> int:
+        """
+        Same as _detect_header_rows but operates on raw bytes.
+        Used by load_bytes().
+        """
+        try:
+            text = content.decode("utf-8", errors="replace")
+            for i, line in enumerate(text.splitlines()):
+                if line.strip() == "[Scan points]":
+                    return i + 1
+        except Exception:
+            pass
+        return 0
+
     def _read_raw(self, filepath: Path) -> pd.DataFrame:
-        """Attempt to read the CSV, trying common delimiters."""
+        """
+        Attempt to read the CSV, trying common delimiters.
+        Handles PANalytical-style exports with a metadata header block.
+        """
         if not filepath.exists():
             raise CSVReadError(f"File not found: {filepath}")
 
+        # Detect how many rows to skip (0 for plain CSVs)
+        skiprows = self._detect_header_rows(filepath)
+
         for sep in (",", ";", "\t", " "):
             try:
-                df = pd.read_csv(filepath, sep=sep, engine="python", skip_blank_lines=True)
+                df = pd.read_csv(
+                    filepath,
+                    sep=sep,
+                    engine="python",
+                    skip_blank_lines=True,
+                    skiprows=skiprows,
+                )
                 if df.shape[1] >= 2:
                     return df
             except Exception:
@@ -141,7 +187,14 @@ class CSVReader:
         """Map flexible column names → 'two_theta', 'intensity'."""
         mapping: dict[str, str] = {}
         for col in df.columns:
-            normalised = col.strip().lower().replace(" ", "_").replace("(", "").replace(")", "").replace("°", "")
+            normalised = (
+                col.strip()
+                .lower()
+                .replace(" ", "_")
+                .replace("(", "")
+                .replace(")", "")
+                .replace("°", "")
+            )
             if normalised in TWO_THETA_ALIASES or col.strip().lower() in TWO_THETA_ALIASES:
                 mapping[col] = "two_theta"
             elif normalised in INTENSITY_ALIASES or col.strip().lower() in INTENSITY_ALIASES:
@@ -167,8 +220,8 @@ class CSVReader:
         df["two_theta"] = pd.to_numeric(df["two_theta"], errors="coerce")
         df["intensity"] = pd.to_numeric(df["intensity"], errors="coerce")
         df = df.dropna(subset=["two_theta", "intensity"])
-        df = df[df["intensity"] >= 0]           # drop unphysical negative counts
-        df = df[df["two_theta"].between(0, 180)] # physical 2θ range
+        df = df[df["intensity"] >= 0]            # drop unphysical negative counts
+        df = df[df["two_theta"].between(0, 180)]  # physical 2θ range
         df = df.sort_values("two_theta").reset_index(drop=True)
         df["intensity"] = df["intensity"].astype(np.float64)
         df["two_theta"] = df["two_theta"].astype(np.float64)
@@ -181,3 +234,23 @@ class CSVReader:
                 f"Only {len(df)} valid data rows remain after cleaning. "
                 "Minimum required is 5."
             )
+
+
+# ----------------------------------------------------------------------
+# Quick smoke-test — run directly to verify a file
+# Usage: python services/csv_reader.py path/to/file.csv
+# ----------------------------------------------------------------------
+if __name__ == "__main__":
+    import sys
+
+    path = sys.argv[1] if len(sys.argv) > 1 else None
+    if not path:
+        print("Usage: python csv_reader.py <path_to_csv>")
+        sys.exit(1)
+
+    reader = CSVReader()
+    result = reader.load(path)
+    print(result.head(10).to_string(index=False))
+    print(f"\nTotal points : {len(result)}")
+    print(f"2θ range     : {result['two_theta'].min():.4f}° – {result['two_theta'].max():.4f}°")
+    print(f"Max intensity: {result['intensity'].max():.1f}")
