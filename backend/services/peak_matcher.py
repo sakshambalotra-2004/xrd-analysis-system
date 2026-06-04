@@ -178,12 +178,20 @@ class PeakMatcher:
         n_std = len(std_peaks)
         n_matched = len(matched_std_angles)
 
+        
+        # Replace your existing _match_one score calculation with this:
         score = 0.0
         if n_std > 0 and n_matched > 0:
             coverage_ratio = n_matched / n_std
+            
+            # REWARD COMPLEXITY: Higher score for matching more absolute peaks
+            absolute_match_bonus = min(n_matched / 12.0, 1.0) 
+            
             mean_angular_error = np.mean([abs(m.delta_two_theta) for m in matched])
             accuracy_ratio = max(0.0, 1.0 - (mean_angular_error / self.tolerance))
-            score = (coverage_ratio * 60.0) + (accuracy_ratio * 40.0)
+            
+            # Weighted formula: 30% coverage, 40% complexity bonus, 30% accuracy
+            score = (coverage_ratio * 30.0) + (absolute_match_bonus * 40.0) + (accuracy_ratio * 30.0)
 
         return MatchResult(
             compound_name=compound_name,

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query"; // Integrated React Query
 import { toast } from "react-toastify";
 import { analysisApi } from "../api/analysisApi";
 import PeakTable from "../components/PeakTable";
@@ -290,29 +291,30 @@ function PeakAlignmentMap({ peaks = [] }) {
 export default function ResultsPage() {
   const { fileId }  = useParams();
   const navigate    = useNavigate();
-  const [result, setResult]           = useState(null);
-  const [loading, setLoading]         = useState(true);
+
+  // Local UI states
   const [graphViewMode, setGraphViewMode] = useState("interactive");
   const [imageError, setImageError]   = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
+  // React Query handles the data fetching, caching, and loading state automatically
+  const { data: result, isLoading, isError } = useQuery({
+    queryKey: ["analysis", fileId],
+    queryFn: async () => {
       try {
         const data = await analysisApi.getAnalysis(fileId);
         console.log("ANALYSIS RESULT:", data);
-        setResult(data);
+        return data;
       } catch (err) {
         console.error(err);
         toast.error("Failed to load analysis results.");
-      } finally {
-        setLoading(false);
+        throw err;
       }
-    };
-    load();
-  }, [fileId]);
+    },
+    retry: 1, // Optional: retry once before failing
+  });
 
-  if (loading) return <div className="page-loader">Loading results…</div>;
-  if (!result)  return <div className="page-error">Results not found for file ID: {fileId}</div>;
+  if (isLoading) return <div className="page-loader">Loading results…</div>;
+  if (isError || !result)  return <div className="page-error">Results not found for file ID: {fileId}</div>;
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const matchedPeaks = result.matched_peaks || [];
@@ -671,7 +673,7 @@ export default function ResultsPage() {
       {/* ── Peak match numerical table ──────────────────────────────────────── */}
       <div className="card" style={{ marginTop: "20px" }}>
         <h3>Peak Match Table</h3>
-        <PeakTable peaks={matchedPeaks} />
+        <PeakTable peaks={matchedPeaks} rawPeaks={result.peaks || []} />
       </div>
     </div>
   );

@@ -296,3 +296,20 @@ class FileHandler:
                 (file_id,)
             )
             return cursor.fetchall()
+            
+    def get_recent_analyses(self, limit: int = 10) -> list[dict]:
+        """Fetches the most recent analysis records directly from the database."""
+        with self.get_db_connection() as conn:
+            conn.row_factory = self._dict_factory
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    a.file_id, a.compound_name, a.formula, a.polytype, 
+                    a.crystal_system, a.confidence_score, a.detected_phases,
+                    u.uploaded_at
+                FROM analysis_results a
+                JOIN uploads u ON a.file_id = u.file_id
+                ORDER BY u.uploaded_at DESC
+                LIMIT ?
+            """, (limit,))
+            return cursor.fetchall()

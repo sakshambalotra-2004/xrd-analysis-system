@@ -3,12 +3,13 @@ services/peak_detector.py
 ==========================
 Advanced Peak Detection Service — Filters out minor statistical noise 
 and isolates diffraction peaks matching the 5% maximum intensity rule.
+Calculates FWHM for Scherrer crystallite sizing.
 """
 
 import logging
 import pandas as pd
 import numpy as np
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, peak_widths
 
 from config import settings
 
@@ -58,12 +59,15 @@ class PeakDetector:
             logger.info("No peaks passed the 5% maximum intensity validation constraints.")
             return pd.DataFrame(columns=["two_theta", "intensity", "fwhm_deg", "prominence"])
 
-        # Calculate Full Width at Half Maximum (FWHM)
-        from scipy.signal import peak_widths
+        # ==========================================
+        # CALCULATE FWHM using scipy.signal.peak_widths
+        # ==========================================
+        # rel_height=0.5 measures the width exactly at the Half-Maximum point
         widths_results = peak_widths(intensities, peak_indices, rel_height=0.5)
         widths_in_points = widths_results[0]
 
         # Convert step indexes back to physical degrees 2-Theta
+        # We use np.median to protect against slight floating point variances in the scan step size
         step_size = float(np.median(np.diff(angles)))
         fwhm_degrees = widths_in_points * step_size
 
@@ -73,7 +77,7 @@ class PeakDetector:
             detected_peaks_list.append({
                 "two_theta": float(angles[idx]),
                 "intensity": float(intensities[idx]),
-                "fwhm_deg": float(fwhm_degrees[i]),
+                "fwhm_deg": float(fwhm_degrees[i]), # Passed to the Analyzer!
                 "prominence": float(properties["prominences"][i])
             })
 

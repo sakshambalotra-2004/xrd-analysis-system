@@ -12,7 +12,7 @@ export const analysisApi = {
    * Trigger the full 10-stage XRD analysis pipeline for an uploaded file.
    *
    * @param {string} fileId
-   * @returns {Promise<AnalysisResponse>}
+   * @returns {Promise<any>}
    */
   async runAnalysis(fileId) {
     const { data } = await axios.post(`${BASE}/${fileId}`);
@@ -39,4 +39,26 @@ export const analysisApi = {
     const { data } = await axios.get(`${BASE}/compounds`);
     return data;
   },
+
+  /**
+   * Fetch the most recent analysis records from the SQLite database.
+   * Used to populate the Dashboard history permanently.
+   * * @param {number} limit - Number of recent records to fetch (default: 5)
+   * @returns {Promise<Array>}
+   */
+  async getRecentHistory(limit = 5) {
+    const { data } = await axios.get(`${BASE}/history/recent?limit=${limit}`);
+    return data.history;
+  },
+
+  /**
+   * Delete an analysis record from the database.
+   *
+   * @param {string} fileId
+   * @returns {Promise<any>}
+   */
+  async deleteAnalysis(fileId) {
+    const { data } = await axios.delete(`${BASE}/${fileId}`);
+    return data;
+  }
 };

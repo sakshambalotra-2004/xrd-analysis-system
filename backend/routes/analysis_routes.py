@@ -166,24 +166,29 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
 
     # Store matched reference peaks
     matched_peaks_out: list[MatchedPeakRow] = []
-    if is_crystalline_match and best_match:
-        saved_matches = []
-        for mp in getattr(best_match, "matched_peaks", []):
-            saved_matches.append({
-                "two_theta_exp": float(getattr(mp, "two_theta_exp", 0.0)),
-                "two_theta_std": float(getattr(mp, "two_theta_std", 0.0)),
-                "delta_two_theta": float(getattr(mp, "delta_two_theta", 0.0)),
-                "d_spacing": float(getattr(mp, "d_spacing", 0.0)),
-                "intensity_std": float(getattr(mp, "intensity_std", 0.0)),
-                "h": int(getattr(mp, "h", 0)),
-                "k": int(getattr(mp, "k", 0)),
-                "l": int(getattr(mp, "l", 0)),
-                "phase_name": str(getattr(mp, "phase_name", getattr(best_match, "compound_name", "Unknown"))),
-                "polytype": str(getattr(mp, "polytype", getattr(best_match, "polytype", "")))
-            })
-        file_handler.save_matched_peaks(file_id, saved_matches)
+    all_saved_matches = []
+
+    if is_crystalline_match and candidates:
+        for candidate in candidates:
+            # We filter by your existing minimum similarity threshold
+            if candidate.similarity_score >= settings.MIN_SIMILARITY_SCORE:
+                for mp in getattr(candidate, "matched_peaks", []):
+                    all_saved_matches.append({
+                        "two_theta_exp": float(getattr(mp, "two_theta_exp", 0.0)),
+                        "two_theta_std": float(getattr(mp, "two_theta_std", 0.0)),
+                        "delta_two_theta": float(getattr(mp, "delta_two_theta", 0.0)),
+                        "d_spacing": float(getattr(mp, "d_spacing", 0.0)),
+                        "intensity_std": float(getattr(mp, "intensity_std", 0.0)),
+                        "h": int(getattr(mp, "h", 0)),
+                        "k": int(getattr(mp, "k", 0)),
+                        "l": int(getattr(mp, "l", 0)),
+                        "phase_name": str(getattr(mp, "phase_name", getattr(candidate, "compound_name", "Unknown"))),
+                        "polytype": str(getattr(mp, "polytype", getattr(candidate, "polytype", "")))
+                    })
         
-        for sm in saved_matches:
+        file_handler.save_matched_peaks(file_id, all_saved_matches)
+        
+        for sm in all_saved_matches:
             matched_peaks_out.append(MatchedPeakRow(**sm))
     else:
         file_handler.save_matched_peaks(file_id, [])
@@ -222,6 +227,22 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
 # ---------------------------------------------------------------------------
 # REST Endpoints
 # ---------------------------------------------------------------------------
+
+@router.get("/history/recent", summary="Get recent analyses for the dashboard")
+async def get_recent_history(limit: int = 5):
+    """Returns the most recent analysis runs directly from the SQLite database."""
+    records = file_handler.get_recent_analyses(limit)
+    
+    # Clean up the stringified database columns before sending to React
+    for r in records:
+        raw_phases = r.get("detected_phases")
+        if isinstance(raw_phases, str):
+            r["detected_phases"] = [p.strip() for p in raw_phases.split(",") if p.strip()]
+        else:
+            r["detected_phases"] = []
+            
+    return {"history": records}
+
 
 @router.post("/{file_id}", response_model=AnalysisResponse, summary="Run XRD pipeline (Path style)")
 async def run_analysis_path(file_id: str):
@@ -297,7 +318,7 @@ async def get_analysis(file_id: str):
         status="done",
         compound_name=str(result.get("compound_name", "No Crystalline Match Found")),
         formula=str(result.get("formula", "N/A")),
-        polytype=str(result.get("polytype", "")),  # FIXED: Explicitly mapped here
+        polytype=str(result.get("polytype", "")),
         crystal_system=str(result.get("crystal_system", "Disordered / Amorphous")),
         space_group=str(result.get("space_group", "N/A")),
         confidence_score=float(result.get("confidence_score", 0.0)),
@@ -315,3 +336,42 @@ async def get_analysis(file_id: str):
         full_two_theta=x_pts,
         full_intensity=y_pts,
     )
+
+
+
+@router.delete("/{file_id}", summary="Delete an analysis record")
+async def delete_analysis(file_id: str):
+    """Deletes an analysis record, its database peaks, and all physical files."""
+    record = file_handler.get_upload_record(file_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"No analysis found for '{file_id}'.")
+    
+    # 1. Delete from SQLite (cascades to all other tables)
+    file_handler.delete_upload_record(file_id)
+    
+    # 2. Delete all physical files from the disk to free up space
+    try:
+        from pathlib import Path
+        
+        # Build a list of all potential files generated by this file_id
+        reports_dir = Path(settings.REPORTS_BASE_DIR)
+        files_to_delete = [
+            Path(record["file_path"]), # The original CSV upload
+            reports_dir / "pdf_reports" / f"{file_id}_report.pdf",
+            reports_dir / "graphs" / f"{file_id}_experimental.png",
+            reports_dir / "graphs" / f"{file_id}_standard.png",
+            reports_dir / "graphs" / f"{file_id}_overlay.png",
+            reports_dir / "origin_files" / f"xrd_analysis_{file_id}.opju",
+            reports_dir / "origin_images" / f"xrd_overlay_{file_id}.png",
+        ]
+        
+        # Loop through and safely delete them if they exist
+        for file_path in files_to_delete:
+            if file_path.exists() and file_path.is_file():
+                file_path.unlink()
+                logger.info("Deleted physical file: %s", file_path.name)
+                
+    except Exception as e:
+        logger.error("Error during physical file cleanup for %s: %s", file_id, e)
+
+    return {"status": "deleted", "file_id": file_id}

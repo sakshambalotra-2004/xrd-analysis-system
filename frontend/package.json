@@ -11,6 +11,7 @@
     "format": "prettier --write src/**/*.{js,jsx,css}"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.0",
     "axios": "^1.6.8",
     "plotly.js-dist-min": "^2.30.0",
     "react": "^18.3.1",
