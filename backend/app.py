@@ -52,6 +52,8 @@ async def lifespan(app: FastAPI):
         settings.REPORTS_GRAPHS_DIR,
         settings.REPORTS_OVERLAY_DIR,
         settings.EXPERIMENTAL_DATA_DIR,
+        settings.REPORTS_ORIGIN_FILES_DIR,   # <-- ADD THIS LINE
+        settings.REPORTS_ORIGIN_IMAGES_DIR,
         settings.SQLITE_DIR,
     ]
     for directory in required_dirs:
@@ -92,6 +94,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
+
         allow_methods=["*"],
         allow_headers=["*"],
     )

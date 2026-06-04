@@ -1,0 +1,38 @@
+{
+  "pdf_card": "00-029-1129",
+  "compound_name": "Silicon Carbide",
+  "mineral_name": "Moissanite-3C, syn",
+  "polytype": "3C",
+  "alternate_name": "",
+  "formula": "SiC",
+  "empirical_formula": "CSi",
+  "cas_number": "409-21-2",
+  "crystal_system": "Cubic",
+  "space_group": "F-43m",
+  "space_group_number": 216,
+  "unit_cell": {
+    "a_ang": 4.3589,
+    "c_ang": 4.3589,
+    "volume_ang3": 82.82,
+    "Z": 4
+  },
+  "molecular_weight_g_mol": 40.10,
+  "density_g_cm3": 3.216,
+  "measured_density_g_cm3": null,
+  "color": "Greenish yellow",
+  "quality_mark": "Indexed",
+  "radiation": "Cu Kα 1.5418 Å",
+  "notes": "3C (beta-SiC) cubic polytype. Zinc blende structure.",
+  "peaks": [
+    { "two_theta": 35.597, "d": 2.52, "intensity": 100, "h": 1, "k": 1, "l": 1 },
+    { "two_theta": 41.384, "d": 2.18, "intensity": 20, "h": 2, "k": 0, "l": 0 },
+    { "two_theta": 59.978, "d": 1.541, "intensity": 35, "h": 2, "k": 2, "l": 0 },
+    { "two_theta": 71.779, "d": 1.314, "intensity": 25, "h": 3, "k": 1, "l": 1 },
+    { "two_theta": 75.494, "d": 1.258, "intensity": 5, "h": 2, "k": 2, "l": 2 },
+    { "two_theta": 90.007, "d": 1.089, "intensity": 5, "h": 4, "k": 0, "l": 0 },
+    { "two_theta": 100.775, "d": 1.0, "intensity": 10, "h": 3, "k": 3, "l": 1 },
+    { "two_theta": 104.411, "d": 0.975, "intensity": 5, "h": 4, "k": 2, "l": 0 },
+    { "two_theta": 119.992, "d": 0.89, "intensity": 5, "h": 4, "k": 2, "l": 2 },
+    { "two_theta": 133.399, "d": 0.839, "intensity": 5, "h": 5, "k": 1, "l": 1 }
+  ]
+}

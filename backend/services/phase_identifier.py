@@ -4,24 +4,7 @@ services/phase_identifier.py
 Phase Identification Module — Stage 6 of the XRD analysis pipeline.
 
 Determines the primary compound and detects secondary phases from the ranked
-list of MatchResult candidates.  Uses a two-pass strategy:
-
-  Pass 1 — Primary phase
-      The highest-scoring candidate above MIN_SIMILARITY_SCORE is the
-      primary compound.
-
-  Pass 2 — Secondary phases (multi-phase detection)
-      Experimental peaks not explained by the primary phase are matched
-      against remaining candidates.  Any candidate whose unmatched-peak
-      score exceeds SECONDARY_SCORE_THRESHOLD is added as a secondary phase.
-
-Usage:
-    from services.phase_identifier import PhaseIdentifier
-
-    identifier = PhaseIdentifier()
-    result = identifier.identify(candidates, peaks_df)
-    print(result.primary.compound_name)
-    print([s.compound_name for s in result.secondary])
+list of MatchResult candidates. Uses an iterative residual matching strategy.
 """
 
 import logging
@@ -35,12 +18,8 @@ from services.peak_matcher import MatchResult, PeakMatcher
 
 logger = logging.getLogger(__name__)
 
-# Minimum score for a compound to be declared a secondary phase
+# Minimum score a compound must achieve on the residual data to be accepted as a secondary phase
 SECONDARY_SCORE_THRESHOLD = 30.0
-
-# Minimum fraction of experimental peaks that must be "unexplained" before
-# searching for a secondary phase
-RESIDUAL_PEAK_FRACTION = 0.25
 
 
 @dataclass
@@ -59,7 +38,18 @@ class PhaseIdentificationResult:
 
     @property
     def phase_formulas(self) -> list[str]:
-        return [p.formula for p in self.all_phases]
+        """
+        Returns a list of formulas annotated with their crystal systems 
+        to differentiate polymorphs (e.g., 'SiC (Cubic)', 'SiC (Hexagonal)').
+        """
+        formulas = []
+        for p in self.all_phases:
+            crystal_sys = getattr(p, "crystal_system", None)
+            if crystal_sys:
+                formulas.append(f"{p.formula} ({crystal_sys})")
+            else:
+                formulas.append(p.formula)
+        return formulas
 
     @property
     def is_multiphase(self) -> bool:
@@ -73,18 +63,14 @@ class PhaseIdentifier:
     Parameters
     ----------
     secondary_score_threshold : float
-        Minimum weighted score for a secondary phase to be accepted.
-    residual_peak_fraction : float
-        Minimum fraction of unexplained peaks before secondary search runs.
+        Minimum weighted score for a secondary phase to be accepted on residual data.
     """
 
     def __init__(
         self,
         secondary_score_threshold: float = SECONDARY_SCORE_THRESHOLD,
-        residual_peak_fraction: float = RESIDUAL_PEAK_FRACTION,
     ) -> None:
         self.secondary_threshold = secondary_score_threshold
-        self.residual_fraction = residual_peak_fraction
 
     # ------------------------------------------------------------------
     # Public API
@@ -96,7 +82,7 @@ class PhaseIdentifier:
         peaks_df: pd.DataFrame,
     ) -> PhaseIdentificationResult:
         """
-        Identify primary and secondary phases.
+        Identify primary and secondary phases using iterative residual matching.
 
         Parameters
         ----------
@@ -115,50 +101,62 @@ class PhaseIdentifier:
             logger.warning("PhaseIdentifier: no candidates supplied.")
             return result
 
-        # Pass 1 — Primary phase
+        # Pass 1 — Extract the dominant Primary Phase
         result.primary = candidates[0]
         logger.info(
-            "Primary phase: %s (%.1f%%)",
+            "Primary phase identified: %s (%.1f%%)",
             result.primary.compound_name,
             result.primary.similarity_score,
         )
 
-        if peaks_df.empty or len(candidates) < 2:
+        if peaks_df.empty:
             return result
 
-        # Pass 2 — Check for secondary phases via residual peaks
+        # Pass 2 — Isolate unexplained peaks to catch secondary/trace phases
         explained_angles = {mp.two_theta_exp for mp in result.primary.matched_peaks}
         all_angles = set(peaks_df["two_theta"].tolist())
         residual_angles = all_angles - explained_angles
-        residual_fraction = len(residual_angles) / len(all_angles) if all_angles else 0.0
 
-        if residual_fraction < self.residual_fraction:
-            logger.info(
-                "Residual peak fraction %.1f%% — no secondary phase search needed.",
-                residual_fraction * 100,
-            )
+        # If there are no remaining unmatched peaks, exit early
+        if not residual_angles:
+            logger.info("All experimental peaks are fully explained by the primary phase.")
             return result
 
         logger.info(
-            "%.1f%% unexplained peaks — searching for secondary phases.",
-            residual_fraction * 100,
+            "Found %d unexplained peak(s). Searching for secondary phases...",
+            len(residual_angles),
         )
 
+        # Filter down the dataframe to only contain the residual peak data
         residual_df = peaks_df[peaks_df["two_theta"].isin(residual_angles)].copy()
 
-        for candidate in candidates[1:]:
-            if candidate.similarity_score < self.secondary_threshold:
+        # Run the matcher directly on the remaining peak dataset
+        matcher = PeakMatcher()
+        residual_candidates = matcher.match(residual_df, max_candidates=5)
+
+        if not residual_candidates:
+            logger.info("No matching database standards found for the residual peaks.")
+            return result
+
+        for sub_candidate in residual_candidates:
+            # FIXED: Guard check now checks both name AND crystal system.
+            # This allows different polymorphs of Silicon Carbide (Cubic vs Hexagonal) to be added!
+            is_duplicate_of_primary = (
+                sub_candidate.compound_name == result.primary.compound_name and
+                getattr(sub_candidate, "crystal_system", "") == getattr(result.primary, "crystal_system", "")
+            )
+            
+            if is_duplicate_of_primary:
                 continue
-            # Re-match only residual peaks
-            matcher = PeakMatcher()
-            sub_candidates = matcher.match(residual_df, max_candidates=1)
-            if sub_candidates and sub_candidates[0].compound_name == candidate.compound_name:
-                result.secondary.append(candidate)
-                logger.info("Secondary phase detected: %s", candidate.compound_name)
-                # Remove peaks now explained by this secondary phase
-                newly_explained = {mp.two_theta_exp for mp in sub_candidates[0].matched_peaks}
-                residual_df = residual_df[~residual_df["two_theta"].isin(newly_explained)]
-                if residual_df.empty:
-                    break
+
+            # Evaluate the confidence score based purely on the residual match quality
+            if sub_candidate.similarity_score >= self.secondary_threshold:
+                result.secondary.append(sub_candidate)
+                logger.info(
+                    "Secondary phase detected: %s - %s (Residual Match Score: %.1f%%)",
+                    sub_candidate.compound_name,
+                    getattr(sub_candidate, "crystal_system", "Unknown"),
+                    sub_candidate.similarity_score,
+                )
 
         return result

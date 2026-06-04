@@ -4,24 +4,10 @@ services/peak_matcher.py
 Peak Matching Engine — Stage 4 of the XRD analysis pipeline.
 
 Compares detected experimental peaks against every standard compound in the
-JSON database and returns a ranked list of candidate matches.
+JSON database and returns a ranked list of candidate matches using an advanced
+Figure of Merit (FOM) alignment scoring framework.
 
-Matching Condition
-------------------
-A peak is considered matched when:
-
-    |2θ_exp − 2θ_std| ≤ PEAK_MATCH_TOLERANCE_DEG   (default 0.2°)
-
-Similarity Score
-----------------
-    Score = (Matched Peaks / Total Standard Peaks) × 100
-
-Usage:
-    from services.peak_matcher import PeakMatcher
-
-    matcher = PeakMatcher()
-    candidates = matcher.match(peaks_df)
-    # candidates: list of MatchResult sorted by score descending
+Upgraded to ensure structural polytype variants are tracked across peak intersections.
 """
 
 import json
@@ -53,6 +39,8 @@ class MatchedPeak:
     h: int
     k: int
     l: int
+    phase_name: str = ""
+    polytype: str = ""  # UPGRADE: Track polytype per individual peak row
 
 
 @dataclass
@@ -62,8 +50,9 @@ class MatchResult:
     formula: str
     crystal_system: str
     space_group: str
-    similarity_score: float          # 0–100 %
+    similarity_score: float
     matched_peaks: list[MatchedPeak] = field(default_factory=list)
+    polytype: str = ""  # UPGRADE: Track polytype for the overall standard match
     total_standard_peaks: int = 0
     total_experimental_peaks: int = 0
 
@@ -79,15 +68,6 @@ class MatchResult:
 class PeakMatcher:
     """
     Matches experimental XRD peaks against the standards database.
-
-    Parameters
-    ----------
-    standards_dir : str | Path | None
-        Directory containing the compound JSON files.  Defaults to
-        ``settings.STANDARDS_DIR``.
-    tolerance_deg : float
-        Maximum |2θ_exp − 2θ_std| for a match.  Defaults to
-        ``settings.PEAK_MATCH_TOLERANCE_DEG``.
     """
 
     def __init__(
@@ -111,20 +91,6 @@ class PeakMatcher:
     ) -> list[MatchResult]:
         """
         Match experimental peaks against all loaded standards.
-
-        Parameters
-        ----------
-        peaks_df : pd.DataFrame
-            Output of PeakDetector.detect().  Must contain 'two_theta' column.
-        max_candidates : int | None
-            Return at most this many candidates (sorted by score descending).
-            Defaults to ``settings.MAX_CANDIDATES``.
-
-        Returns
-        -------
-        list[MatchResult]
-            Candidates above ``settings.MIN_SIMILARITY_SCORE``, sorted by
-            similarity_score descending.
         """
         if peaks_df.empty:
             logger.warning("Empty peaks_df passed to PeakMatcher.")
@@ -145,14 +111,13 @@ class PeakMatcher:
 
         if top:
             logger.info(
-                "Top match: %s (%.1f%% confidence, %d/%d peaks matched)",
+                "Top match: %s %s (%.1f%% confidence, %d/%d peaks matched)",
                 top[0].compound_name,
+                f"[{top[0].polytype}]" if top[0].polytype else "",
                 top[0].similarity_score,
                 top[0].matched_count,
                 top[0].total_standard_peaks,
             )
-        else:
-            logger.warning("No compound matched above the minimum score threshold.")
 
         return top
 
@@ -167,17 +132,13 @@ class PeakMatcher:
             return
 
         files = list(self.standards_dir.glob("*.json"))
-        logger.info("Loading %d standard compound files from %s", len(files), self.standards_dir)
-
         for fpath in files:
             try:
                 with open(fpath, encoding="utf-8") as f:
                     data = json.load(f)
-                self._standards.append(data)
+                    self._standards.append(data)
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning("Skipping %s — %s", fpath.name, exc)
-
-        logger.info("Loaded %d standard compounds.", len(self._standards))
 
     def _match_one(
         self,
@@ -187,8 +148,11 @@ class PeakMatcher:
         n_exp: int,
     ) -> MatchResult:
         """Compare one standard compound against experimental peaks."""
+        compound_name = std.get("compound_name", "Unknown")
+        polytype = str(std.get("polytype", ""))  # UPGRADE: Extract polytype from JSON standard
         std_peaks = std.get("peaks", [])
         matched: list[MatchedPeak] = []
+        matched_std_angles = set()
 
         for sp in std_peaks:
             std_angle = float(sp["two_theta"])
@@ -199,25 +163,36 @@ class PeakMatcher:
                 matched.append(MatchedPeak(
                     two_theta_exp=float(exp_angles[closest_idx]),
                     two_theta_std=std_angle,
-                    delta_two_theta=float(deltas[closest_idx]),
+                    delta_two_theta=float(exp_angles[closest_idx] - std_angle),
                     intensity_exp=float(exp_intensities[closest_idx]),
                     intensity_std=float(sp.get("intensity", 0)),
                     d_spacing=float(sp.get("d", 0)),
                     h=int(sp.get("h", 0)),
                     k=int(sp.get("k", 0)),
                     l=int(sp.get("l", 0)),
+                    phase_name=compound_name,
+                    polytype=polytype # UPGRADE: Attach polytype to this specific reflection
                 ))
+                matched_std_angles.add(std_angle)
 
         n_std = len(std_peaks)
-        score = (len(matched) / n_std * 100) if n_std > 0 else 0.0
+        n_matched = len(matched_std_angles)
+
+        score = 0.0
+        if n_std > 0 and n_matched > 0:
+            coverage_ratio = n_matched / n_std
+            mean_angular_error = np.mean([abs(m.delta_two_theta) for m in matched])
+            accuracy_ratio = max(0.0, 1.0 - (mean_angular_error / self.tolerance))
+            score = (coverage_ratio * 60.0) + (accuracy_ratio * 40.0)
 
         return MatchResult(
-            compound_name=std.get("compound_name", "Unknown"),
+            compound_name=compound_name,
             formula=std.get("formula", "?"),
             crystal_system=std.get("crystal_system", "Unknown"),
             space_group=std.get("space_group", "Unknown"),
             similarity_score=round(score, 2),
             matched_peaks=matched,
+            polytype=polytype, # UPGRADE: Attach polytype to the overall match result
             total_standard_peaks=n_std,
             total_experimental_peaks=n_exp,
         )

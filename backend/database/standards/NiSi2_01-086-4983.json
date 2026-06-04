@@ -1,0 +1,43 @@
+{
+  "pdf_card": "01-086-4983",
+  "compound_name": "Nickel Silicon",
+  "mineral_name": "",
+  "polytype": "Cubic",
+  "alternate_name": "Nickel silicide",
+  "formula": "NiSi2",
+  "empirical_formula": "NiSi2",
+  "cas_number": "",
+  "crystal_system": "Cubic",
+  "space_group": "Fm-3m",
+  "space_group_number": 225,
+  "unit_cell": {
+    "a_ang": 5.382,
+    "c_ang": 5.382,
+    "volume_ang3": 155.89,
+    "Z": 4
+  },
+  "molecular_weight_g_mol": 114.87,
+  "density_g_cm3": 4.894,
+  "measured_density_g_cm3": null,
+  "color": null,
+  "quality_mark": "Star (Alternate)",
+  "radiation": "Cu Kα1 1.5406 Å",
+  "notes": "Fluorite structure type. Cubic NiSi2.",
+  "peaks": [
+    { "two_theta": 28.707, "d": 3.1073, "intensity": 823, "h": 1, "k": 1, "l": 1 },
+    { "two_theta": 47.760, "d": 1.9028, "intensity": 1000, "h": 2, "k": 2, "l": 0 },
+    { "two_theta": 56.679, "d": 1.6227, "intensity": 244, "h": 3, "k": 1, "l": 1 },
+    { "two_theta": 59.445, "d": 1.5537, "intensity": 1, "h": 2, "k": 2, "l": 2 },
+    { "two_theta": 69.850, "d": 1.3455, "intensity": 116, "h": 4, "k": 0, "l": 0 },
+    { "two_theta": 77.198, "d": 1.2347, "intensity": 65, "h": 3, "k": 3, "l": 1 },
+    { "two_theta": 79.595, "d": 1.2035, "intensity": 2, "h": 4, "k": 2, "l": 0 },
+    { "two_theta": 89.041, "d": 1.0986, "intensity": 181, "h": 4, "k": 2, "l": 2 },
+    { "two_theta": 96.095, "d": 1.0358, "intensity": 36, "h": 5, "k": 1, "l": 1 },
+    { "two_theta": 108.121, "d": 0.9514, "intensity": 50, "h": 4, "k": 4, "l": 0 },
+    { "two_theta": 115.718, "d": 0.9097, "intensity": 32, "h": 5, "k": 3, "l": 1 },
+    { "two_theta": 118.353, "d": 0.897, "intensity": 2, "h": 6, "k": 0, "l": 0 },
+    { "two_theta": 129.701, "d": 0.851, "intensity": 74, "h": 6, "k": 2, "l": 0 },
+    { "two_theta": 139.614, "d": 0.8207, "intensity": 12, "h": 5, "k": 3, "l": 3 },
+    { "two_theta": 143.385, "d": 0.8114, "intensity": 2, "h": 6, "k": 2, "l": 2 }
+  ]
+}

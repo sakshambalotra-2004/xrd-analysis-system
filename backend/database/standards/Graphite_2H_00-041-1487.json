@@ -1,0 +1,38 @@
+{
+  "pdf_card": "00-041-1487",
+  "compound_name": "Carbon",
+  "mineral_name": "Graphite-2H",
+  "polytype": "2H",
+  "alternate_name": "c.i. pigment black 10, cliftonite, plumbago",
+  "formula": "C",
+  "empirical_formula": "C",
+  "cas_number": "7782-42-5",
+  "crystal_system": "Hexagonal",
+  "space_group": "P63/mmc",
+  "space_group_number": 194,
+  "unit_cell": {
+    "a_ang": 2.4704,
+    "c_ang": 6.7244,
+    "volume_ang3": 35.54,
+    "Z": 4
+  },
+  "molecular_weight_g_mol": 12.01,
+  "density_g_cm3": 2.245,
+  "measured_density_g_cm3": 2.16,
+  "color": "Black",
+  "quality_mark": "Indexed",
+  "radiation": "Cu Kα1 1.5405 Å",
+  "notes": "2H graphite polytype. Common hexagonal graphite.",
+  "peaks": [
+    { "two_theta": 26.403, "d": 3.37563, "intensity": 100, "h": 0, "k": 0, "l": 2 },
+    { "two_theta": 42.258, "d": 2.13865, "intensity": 2,   "h": 1, "k": 0, "l": 0 },
+    { "two_theta": 44.430, "d": 2.03901, "intensity": 6,   "h": 1, "k": 0, "l": 1 },
+    { "two_theta": 50.497, "d": 1.80737, "intensity": 1,   "h": 1, "k": 0, "l": 2 },
+    { "two_theta": 54.591, "d": 1.68110, "intensity": 4,   "h": 0, "k": 0, "l": 4 },
+    { "two_theta": 59.747, "d": 1.54777, "intensity": 1,   "h": 1, "k": 0, "l": 3 },
+    { "two_theta": 77.319, "d": 1.23408, "intensity": 3,   "h": 1, "k": 1, "l": 0 },
+    { "two_theta": 83.268, "d": 1.16038, "intensity": 3,   "h": 1, "k": 1, "l": 2 },
+    { "two_theta": 86.913, "d": 1.12084, "intensity": 1,   "h": 0, "k": 0, "l": 6 },
+    { "two_theta": 93.696, "d": 1.05672, "intensity": 1,   "h": 2, "k": 0, "l": 1 }
+  ]
+}

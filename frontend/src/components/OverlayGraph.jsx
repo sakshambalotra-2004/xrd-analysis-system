@@ -1,238 +1,92 @@
-import React from "react";
+import React, { useMemo } from "react";
 import Plot from "react-plotly.js";
 
-/**
- * OverlayGraph
- * =============
- * Professional overlay comparison chart for:
- *  - Experimental XRD pattern
- *  - Standard reference peaks
- *
- * Fixes:
- * -------
- * ✔ Prevents weird zig-zag graph
- * ✔ Sorts experimental peaks correctly
- * ✔ Uses vertical standard reference bars
- * ✔ Better hover labels
- * ✔ Cleaner layout
- * ✔ Responsive + publication style
- */
-
 export default function OverlayGraph({
-  experimentalPeaks = [],
+  twoTheta = [],
+  intensity = [],
   matchedPeaks = [],
   compoundName = "Standard",
 }) {
-  /**
-   * ----------------------------------------------------------------
-   * SORT EXPERIMENTAL DATA
-   * ----------------------------------------------------------------
-   * Your graph was messy because points were connected
-   * in unsorted order.
-   */
+  const hasMatches = matchedPeaks && matchedPeaks.length > 0;
 
-  const sortedExperimental = [...experimentalPeaks].sort(
-    (a, b) => a.two_theta - b.two_theta
-  );
+  const { scaleFactor, maxExpIntensity } = useMemo(() => {
+    const maxExp = intensity.length > 0 ? Math.max(...intensity) : 1.0;
+    const maxStd = hasMatches ? Math.max(...matchedPeaks.map((p) => p.intensity_std)) : 1.0;
+    return { scaleFactor: maxExp / maxStd, maxExpIntensity: maxExp };
+  }, [intensity, matchedPeaks, hasMatches]);
 
-  const expAngles = sortedExperimental.map((p) => p.two_theta);
+  const sortedData = useMemo(() => {
+    return [...twoTheta].map((x, i) => ({ x, y: intensity[i] })).sort((a, b) => a.x - b.x);
+  }, [twoTheta, intensity]);
 
-  const expIntensities = sortedExperimental.map((p) => p.intensity);
-
-  /**
-   * ----------------------------------------------------------------
-   * SCALE STANDARD INTENSITIES
-   * ----------------------------------------------------------------
-   */
-
-  const maxExp = Math.max(...expIntensities, 1);
-
-  const maxStd = Math.max(
-    ...matchedPeaks.map((p) => p.intensity_std || 1),
-    1
-  );
-
-  const scaleFactor = maxExp / maxStd;
-
-  /**
-   * ----------------------------------------------------------------
-   * STANDARD REFERENCE VERTICAL BARS
-   * ----------------------------------------------------------------
-   */
-
-  const standardShapes = matchedPeaks.map((p) => ({
-    type: "line",
-
-    x0: p.two_theta_std,
-    x1: p.two_theta_std,
-
-    y0: 0,
-    y1: p.intensity_std * scaleFactor,
-
-    line: {
-      color: "#ef4444",
-      width: 2,
-    },
-  }));
-
-  /**
-   * ----------------------------------------------------------------
-   * PLOT DATA
-   * ----------------------------------------------------------------
-   */
+  const sortedX = sortedData.map((p) => p.x);
+  const sortedY = sortedData.map((p) => p.y);
 
   const data = [
-    /**
-     * Experimental XRD Pattern
-     */
     {
-      x: expAngles,
-
-      y: expIntensities,
-
+      x: sortedX,
+      y: sortedY,
       type: "scatter",
-
       mode: "lines",
-
-      name: "Experimental",
-
-      line: {
-        color: "#2563eb",
-        width: 3,
-      },
-
-      hovertemplate:
-        "<b>Experimental Peak</b><br>" +
-        "2θ: %{x:.2f}°<br>" +
-        "Intensity: %{y:.2f}<extra></extra>",
-    },
-
-    /**
-     * Standard Reference Markers
-     */
-    {
-      x: matchedPeaks.map((p) => p.two_theta_std),
-
-      y: matchedPeaks.map(
-        (p) => p.intensity_std * scaleFactor
-      ),
-
-      type: "scatter",
-
-      mode: "markers",
-
-      name: `Standard (${compoundName})`,
-
-      marker: {
-        color: "#ef4444",
-        size: 9,
-        symbol: "diamond",
-      },
-
-      hovertemplate:
-        "<b>Standard Peak</b><br>" +
-        "2θ Std: %{x:.2f}°<br>" +
-        "Scaled Intensity: %{y:.2f}<extra></extra>",
-    },
+      name: "Experimental Profile",
+      line: { color: "#000000", width: 1.2 },
+      hovertemplate: "<b>Experimental Scan</b><br>2θ: %{x:.2f}°<br>Intensity: %{y:.1f}<extra></extra>",
+    }
   ];
 
-  /**
-   * ----------------------------------------------------------------
-   * LAYOUT
-   * ----------------------------------------------------------------
-   */
+  // Only inject the reference standard trace if genuine crystalline peaks were matched
+  if (hasMatches) {
+    data.push({
+      x: matchedPeaks.map((p) => p.two_theta_std),
+      y: matchedPeaks.map((p) => p.intensity_std * scaleFactor),
+      type: "scatter",
+      mode: "markers+text",
+      name: `Standard: ${compoundName}`,
+      marker: { color: "#dc2626", size: 5, symbol: "circle" },
+      text: matchedPeaks.map((p) => `(${p.h} ${p.k} ${p.l})`),
+      textposition: "top center",
+      font: { family: "Arial, sans-serif", size: 10, color: "#dc2626" },
+      hovertemplate: "<b>Standard Reflection</b><br>2θ Standard: %{x:.2f}°<br>Miller Indices: %{text}<extra></extra>",
+    });
+  }
+
+  const lines = useMemo(() => {
+    if (!hasMatches) return [];
+    return matchedPeaks.map((p) => ({
+      type: "line",
+      x0: p.two_theta_std, y0: 0, x1: p.two_theta_std, y1: p.intensity_std * scaleFactor,
+      line: { color: "#dc2626", width: 1.5, dash: "solid" },
+    }));
+  }, [matchedPeaks, scaleFactor, hasMatches]);
 
   const layout = {
     title: {
-      text: `Overlay Comparison — Experimental vs ${compoundName}`,
-      font: {
-        size: 22,
-      },
+      text: hasMatches 
+        ? `Phase Identification Overlay Alignment — ${compoundName}` 
+        : "Amorphous Scan Profile (No Crystalline Match Discovered)",
+      font: { size: 14, family: "Arial, Helvetica, sans-serif", color: "#000000", weight: "bold" },
     },
-
     xaxis: {
-      title: {
-        text: "2θ (degrees)",
-      },
-
-      showgrid: true,
-
-      gridcolor: "#e5e7eb",
-
-      zeroline: false,
-
-      tickfont: {
-        size: 13,
-      },
+      title: { text: "2θ (degrees)", font: { size: 13, family: "Arial, sans-serif" } },
+      ticks: "inside", ticklen: 6, tickwidth: 1.2, showline: true, linecolor: "#000000", linewidth: 1.5, mirror: "all", showgrid: false, zeroline: false,
     },
-
     yaxis: {
-      title: {
-        text: "Intensity (a.u.)",
-      },
-
-      showgrid: true,
-
-      gridcolor: "#e5e7eb",
-
-      zeroline: false,
-
-      tickfont: {
-        size: 13,
-      },
+      title: { text: "Intensity (a.u.)", font: { size: 13, family: "Arial, sans-serif" } },
+      ticks: "inside", ticklen: 6, tickwidth: 1.2, showline: true, linecolor: "#000000", linewidth: 1.5, mirror: "all", showgrid: false, zeroline: false,
+      range: [0, maxExpIntensity * 1.15],
     },
-
+    shapes: lines,
     hovermode: "closest",
-
-    shapes: standardShapes,
-
     legend: {
-      orientation: "h",
-
-      x: 0,
-
-      y: -0.18,
-
-      font: {
-        size: 13,
-      },
+      x: 0.95, y: 0.95, xanchor: "right", yanchor: "top", bgcolor: "#ffffff", bordercolor: "#000000", borderwidth: 1,
     },
-
-    margin: {
-      t: 70,
-      l: 80,
-      r: 40,
-      b: 80,
-    },
-
-    plot_bgcolor: "#ffffff",
-
-    paper_bgcolor: "#ffffff",
-
-    font: {
-      family: "Inter, sans-serif",
-    },
+    margin: { t: 55, b: 55, l: 65, r: 35 },
+    plot_bgcolor: "#ffffff", paper_bgcolor: "#ffffff",
   };
 
-  /**
-   * ----------------------------------------------------------------
-   * RENDER
-   * ----------------------------------------------------------------
-   */
-
   return (
-    <Plot
-      data={data}
-      layout={layout}
-      useResizeHandler
-      style={{
-        width: "100%",
-        height: "550px",
-      }}
-      config={{
-        responsive: true,
-        displaylogo: false,
-      }}
-    />
+    <div className="origin-plotly-wrapper" style={{ border: "1px solid #e5e7eb", borderRadius: "6px", padding: "10px", backgroundColor: "#ffffff" }}>
+      <Plot data={data} layout={layout} useResizeHandler style={{ width: "100%", height: "460px" }} config={{ responsive: true, displaylogo: false, scrollZoom: true }} />
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 """
 services/ml_predictor.py
 =========================
-ML Predictor — Optional machine-learning crystal system classifier.
+ML Predictor — Optional machine-learning crystal system and polytype classifier.
 
 Uses a trained scikit-learn model (RandomForest by default) to predict the
 crystal system directly from peak features, providing an independent
@@ -54,6 +54,7 @@ class MLPrediction:
     crystal_system: str
     confidence: float          # probability [0–1] for the top class
     all_probabilities: dict    # {crystal_system: probability}
+    polytype: str = ""         # UPGRADE: Added explicit structure polytype classification tracking
     model_available: bool = True
 
 
@@ -81,50 +82,81 @@ class MLPredictor:
         """Return True if all model files were loaded successfully."""
         return self._loaded
 
-    def predict(self, peaks_df: pd.DataFrame) -> MLPrediction:
+    def predict(self, peaks_df: pd.DataFrame, best_match=None) -> MLPrediction:
         """
         Predict the crystal system from detected XRD peaks.
 
         Parameters
         ----------
         peaks_df : pd.DataFrame
-            Must contain columns: two_theta, intensity, fwhm_deg (optional).
+            Must contain columns: two_theta, intensity, fwhm_deg (optional), 
+            d_spacing (optional), crystallite_size (optional).
+        best_match : MatchResult | None
+            Optional matching candidate used to populate structural polytypes.
 
         Returns
         -------
         MLPrediction
             Prediction with crystal system label and confidence score.
-            If model is unavailable, returns a placeholder result.
+            If model is unavailable or dataframe is empty, returns a placeholder result.
         """
+        # Safely extract polytype parameter if passed down from the peak matching engine
+        detected_polytype = str(getattr(best_match, "polytype", "")) if best_match else ""
+
         if not self._loaded:
             logger.warning("ML model not available — returning placeholder prediction.")
             return MLPrediction(
                 crystal_system="Unknown",
                 confidence=0.0,
                 all_probabilities={},
+                polytype=detected_polytype,
                 model_available=False,
             )
 
-        features = self._extract_features(peaks_df)
-        features_scaled = self._scaler.transform([features])
+        # Guard against empty or null dataframes preventing zero-reduction numpy runtime exceptions
+        if peaks_df is None or peaks_df.empty:
+            logger.warning("Empty or null peak data provided — returning fallback prediction.")
+            classes = self._label_encoder.classes_ if self._label_encoder else []
+            all_probs = {cls: 0.0 for cls in classes}
+            return MLPrediction(
+                crystal_system="Unknown",
+                confidence=0.0,
+                all_probabilities=all_probs,
+                polytype=detected_polytype,
+                model_available=True,
+            )
 
-        proba = self._model.predict_proba(features_scaled)[0]
-        classes = self._label_encoder.classes_
-        top_idx = int(np.argmax(proba))
+        try:
+            features = self._extract_features(peaks_df)
+            features_scaled = self._scaler.transform([features])
 
-        all_probs = {cls: round(float(p), 4) for cls, p in zip(classes, proba)}
+            proba = self._model.predict_proba(features_scaled)[0]
+            classes = self._label_encoder.classes_
+            top_idx = int(np.argmax(proba))
 
-        logger.info(
-            "ML prediction: %s (confidence=%.1f%%)",
-            classes[top_idx], proba[top_idx] * 100,
-        )
+            all_probs = {cls: round(float(p), 4) for cls, p in zip(classes, proba)}
 
-        return MLPrediction(
-            crystal_system=str(classes[top_idx]),
-            confidence=round(float(proba[top_idx]), 4),
-            all_probabilities=all_probs,
-            model_available=True,
-        )
+            logger.info(
+                "ML prediction: %s (confidence=%.1f%%)",
+                classes[top_idx], proba[top_idx] * 100,
+            )
+
+            return MLPrediction(
+                crystal_system=str(classes[top_idx]),
+                confidence=round(float(proba[top_idx]), 4),
+                all_probabilities=all_probs,
+                polytype=detected_polytype,  # UPGRADE: Explicitly appended to the return dataclass
+                model_available=True,
+            )
+        except Exception as exc:
+            logger.error("ML evaluation crashed during feature normalization: %s", exc)
+            return MLPrediction(
+                crystal_system="Unknown (Error)",
+                confidence=0.0,
+                all_probabilities={},
+                polytype=detected_polytype,
+                model_available=True,
+            )
 
     def train(self, X: np.ndarray, y: np.ndarray) -> None:
         """
@@ -188,24 +220,33 @@ class MLPredictor:
             logger.warning("Failed to load ML model: %s", exc)
 
     def _extract_features(self, peaks_df: pd.DataFrame) -> list[float]:
-        """Build feature vector from peaks DataFrame."""
+        """Build feature vector from peaks DataFrame, mapping all 11 specs safely."""
         angles = peaks_df["two_theta"].to_numpy()
         intensities = peaks_df["intensity"].to_numpy()
+        
         fwhm = peaks_df["fwhm_deg"].to_numpy() if "fwhm_deg" in peaks_df.columns else np.zeros(len(angles))
         d_spacings = peaks_df["d_spacing"].to_numpy() if "d_spacing" in peaks_df.columns else np.zeros(len(angles))
+        
+        # Extract crystallite size column to match docstring specification
+        crystallite_size = (
+            peaks_df["crystallite_size"].to_numpy() 
+            if "crystallite_size" in peaks_df.columns 
+            else np.zeros(len(angles))
+        )
 
-        max_int = intensities.max() or 1.0
+        max_int = intensities.max() if len(intensities) > 0 else 1.0
 
         features = [
             float(len(angles)),                             # peak count
-            float(np.mean(angles)),                         # mean 2θ
-            float(np.std(angles)),                          # std 2θ
-            float(np.min(angles)),                          # min 2θ
-            float(np.max(angles)),                          # max 2θ
-            float(np.mean(d_spacings)),                     # mean d
-            float(np.std(d_spacings)) if len(d_spacings) > 1 else 0.0,
-            float(np.mean(fwhm)),                           # mean FWHM
-            float(np.std(fwhm)) if len(fwhm) > 1 else 0.0,
-            float(np.mean(intensities) / max_int),          # normalised mean intensity
+            float(np.mean(angles)) if len(angles) > 0 else 0.0,  # mean 2θ
+            float(np.std(angles)) if len(angles) > 0 else 0.0,   # std 2θ
+            float(np.min(angles)) if len(angles) > 0 else 0.0,   # min 2θ
+            float(np.max(angles)) if len(angles) > 0 else 0.0,   # max 2θ
+            float(np.mean(d_spacings)) if len(d_spacings) > 0 else 0.0, # mean d
+            float(np.std(d_spacings)) if len(d_spacings) > 1 else 0.0,  # std d
+            float(np.mean(fwhm)) if len(fwhm) > 0 else 0.0,     # mean FWHM
+            float(np.std(fwhm)) if len(fwhm) > 1 else 0.0,      # std FWHM
+            float(np.mean(crystallite_size)) if len(crystallite_size) > 0 else 0.0, # mean crystallite size
+            float(np.mean(intensities) / max_int) if len(intensities) > 0 else 0.0, # normalised mean intensity
         ]
         return features

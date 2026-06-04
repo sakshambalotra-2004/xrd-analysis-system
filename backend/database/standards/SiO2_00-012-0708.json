@@ -1,0 +1,39 @@
+{
+  "pdf_card": "00-012-0708",
+  "compound_name": "Silicon Oxide",
+  "mineral_name": "",
+  "polytype": "",
+  "alternate_name": "",
+  "formula": "SiO2",
+  "empirical_formula": "O2Si",
+  "cas_number": "",
+  "crystal_system": "Hexagonal",
+  "space_group": "P3221",
+  "space_group_number": 154,
+  "unit_cell": {
+    "a_ang": 4.994,
+    "c_ang": 5.438,
+    "volume_ang3": 117.45,
+    "Z": 3
+  },
+  "molecular_weight_g_mol": 60.08,
+  "density_g_cm3": 2.548,
+  "measured_density_g_cm3": null,
+  "color": null,
+  "quality_mark": "Star",
+  "radiation": "Cu Kα1 1.5406 Å",
+  "notes": "Silica-rich end of silica O series. Distorted quartz structure caused by lattice disorder.",
+  "peaks": [
+    { "two_theta": 20.543, "d": 4.32, "intensity": 40, "h": 1, "k": 0, "l": 0 },
+    { "two_theta": 26.347, "d": 3.38, "intensity": 100, "h": 1, "k": 0, "l": 1 },
+    { "two_theta": 35.922, "d": 2.498, "intensity": 10, "h": 1, "k": 1, "l": 0 },
+    { "two_theta": 39.081, "d": 2.303, "intensity": 6, "h": 1, "k": 0, "l": 2 },
+    { "two_theta": 41.685, "d": 2.165, "intensity": 18, "h": 2, "k": 0, "l": 0 },
+    { "two_theta": 44.997, "d": 2.013, "intensity": 12, "h": 2, "k": 0, "l": 1 },
+    { "two_theta": 49.440, "d": 1.842, "intensity": 60, "h": 1, "k": 1, "l": 2 },
+    { "two_theta": 54.025, "d": 1.696, "intensity": 4, "h": 2, "k": 0, "l": 2 },
+    { "two_theta": 58.847, "d": 1.568, "intensity": 25, "h": 2, "k": 1, "l": 1 },
+    { "two_theta": 66.548, "d": 1.404, "intensity": 20, "h": 2, "k": 1, "l": 2 },
+    { "two_theta": 67.143, "d": 1.393, "intensity": 35, "h": 3, "k": 0, "l": 1 }
+  ]
+}

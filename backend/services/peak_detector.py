@@ -1,144 +1,86 @@
 """
 services/peak_detector.py
-=========================
-Peak Detection Module — Stage 3 of the XRD analysis pipeline.
-
-Detects significant diffraction peaks in the smoothed intensity signal and
-returns a DataFrame of candidate peaks with their 2θ positions, intensities,
-and widths (FWHM) needed for Scherrer crystallite-size calculations.
-
-Algorithm
----------
-Uses ``scipy.signal.find_peaks`` with configurable height, prominence, and
-minimum inter-peak distance constraints, then refines each peak centre with
-a Gaussian fit to sub-point accuracy and estimates FWHM.
-
-Usage:
-    from services.peak_detector import PeakDetector
-
-    detector = PeakDetector()
-    peaks_df = detector.detect(df)          # df: two_theta, intensity
-    # peaks_df columns: two_theta, intensity, fwhm_deg, prominence
+==========================
+Advanced Peak Detection Service — Filters out minor statistical noise 
+and isolates diffraction peaks matching the 5% maximum intensity rule.
 """
 
 import logging
-from dataclasses import dataclass, field
-
-import numpy as np
 import pandas as pd
-from scipy.signal import find_peaks, peak_prominences, peak_widths
+import numpy as np
+from scipy.signal import find_peaks
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class PeakDetectionConfig:
-    """Tuning parameters for peak detection."""
-    height_fraction: float = field(default_factory=lambda: settings.PEAK_HEIGHT_THRESHOLD)
-    min_distance_pts: int = field(default_factory=lambda: settings.PEAK_MIN_DISTANCE)
-    prominence_fraction: float = field(default_factory=lambda: settings.PEAK_PROMINENCE)
-    # Relative height at which peak width is measured (0.5 → FWHM)
-    width_rel_height: float = 0.5
-
-
 class PeakDetector:
-    """
-    Detects XRD peaks from a smoothed intensity DataFrame.
+    """Isolates significant diffraction peaks from smoothed background matrix curves."""
 
-    Parameters
-    ----------
-    config : PeakDetectionConfig | None
-        Override default detection parameters.
-    """
+    def detect(self, df_smooth: pd.DataFrame) -> pd.DataFrame:
+        if df_smooth.empty:
+            logger.warning("Empty dataframe passed to PeakDetector.")
+            return pd.DataFrame(columns=["two_theta", "intensity", "fwhm_deg", "prominence"])
 
-    def __init__(self, config: PeakDetectionConfig | None = None) -> None:
-        self.cfg = config or PeakDetectionConfig()
+        angle_col = 'Angle' if 'Angle' in df_smooth.columns else df_smooth.columns[0]
+        intensity_col = 'Intensity' if 'Intensity' in df_smooth.columns else df_smooth.columns[1]
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+        angles = df_smooth[angle_col].to_numpy()
+        intensities = df_smooth[intensity_col].to_numpy()
 
-    def detect(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Detect peaks in a smoothed XRD DataFrame.
+        # Find the absolute highest intensity value in this specific file
+        global_max = float(np.max(intensities))
+        if global_max <= 0:
+            global_max = 1.0
 
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Columns: 'two_theta', 'intensity' (smoothed).
+        # Safely retrieve configuration keys with fallback options
+        height_threshold_fraction = getattr(settings, "PEAK_HEIGHT_THRESHOLD", 0.05)
+        prominence_threshold_fraction = getattr(settings, "PEAK_PROMINENCE_FRACTION", getattr(settings, "PEAK_PROMINENCE", 0.05))
 
-        Returns
-        -------
-        pd.DataFrame
-            Columns:
-              - two_theta       : float  — peak centre in degrees
-              - intensity       : float  — peak height (counts / a.u.)
-              - fwhm_deg        : float  — full-width at half-maximum (°)
-              - prominence       : float  — prominence above surrounding baseline
-              - index           : int    — index in the original df array
-        """
-        two_theta = df["two_theta"].to_numpy()
-        intensity = df["intensity"].to_numpy()
-
-        max_intensity = intensity.max()
-        if max_intensity == 0:
-            logger.warning("All intensities are zero — no peaks detected.")
-            return self._empty_result()
-
-        min_height = self.cfg.height_fraction * max_intensity
-        min_prominence = self.cfg.prominence_fraction * max_intensity
-
-        indices, props = find_peaks(
-            intensity,
-            height=min_height,
-            distance=self.cfg.min_distance_pts,
-            prominence=min_prominence,
-        )
-
-        if len(indices) == 0:
-            logger.warning("No peaks found above threshold (height≥%.1f, prom≥%.1f).",
-                           min_height, min_prominence)
-            return self._empty_result()
-
-        # Compute FWHM in data-point units, then convert to degrees
-        widths_pts, _, _, _ = peak_widths(intensity, indices, rel_height=self.cfg.width_rel_height)
-        deg_per_point = self._deg_per_point(two_theta)
-        fwhm_deg = widths_pts * deg_per_point
-
-        prominences, _, _ = peak_prominences(intensity, indices)
-
-        peaks_df = pd.DataFrame({
-            "index": indices,
-            "two_theta": two_theta[indices],
-            "intensity": intensity[indices],
-            "fwhm_deg": fwhm_deg,
-            "prominence": prominences,
-        })
-
-        # Sort by descending intensity (strongest peak first)
-        peaks_df = peaks_df.sort_values("intensity", ascending=False).reset_index(drop=True)
+        # Apply the 5% of max intensity rule
+        absolute_height_limit = global_max * height_threshold_fraction
+        absolute_prominence_limit = global_max * prominence_threshold_fraction
 
         logger.info(
-            "Detected %d peaks; strongest at 2θ=%.3f° (I=%.1f)",
-            len(peaks_df),
-            peaks_df.iloc[0]["two_theta"],
-            peaks_df.iloc[0]["intensity"],
+            "Running 5%% Peak Filtering: Global Max=%.1f, Cutoff Height=%.1f, Cutoff Prominence=%.1f",
+            global_max, absolute_height_limit, absolute_prominence_limit
         )
+
+        # Execute Scipy peak detector using your exact 5% thresholds
+        peak_indices, properties = find_peaks(
+            intensities,
+            height=absolute_height_limit,
+            prominence=absolute_prominence_limit,
+            distance=settings.PEAK_MIN_DISTANCE
+        )
+
+        if len(peak_indices) == 0:
+            logger.info("No peaks passed the 5% maximum intensity validation constraints.")
+            return pd.DataFrame(columns=["two_theta", "intensity", "fwhm_deg", "prominence"])
+
+        # Calculate Full Width at Half Maximum (FWHM)
+        from scipy.signal import peak_widths
+        widths_results = peak_widths(intensities, peak_indices, rel_height=0.5)
+        widths_in_points = widths_results[0]
+
+        # Convert step indexes back to physical degrees 2-Theta
+        step_size = float(np.median(np.diff(angles)))
+        fwhm_degrees = widths_in_points * step_size
+
+        # Build results matrix
+        detected_peaks_list = []
+        for i, idx in enumerate(peak_indices):
+            detected_peaks_list.append({
+                "two_theta": float(angles[idx]),
+                "intensity": float(intensities[idx]),
+                "fwhm_deg": float(fwhm_degrees[i]),
+                "prominence": float(properties["prominences"][i])
+            })
+
+        peaks_df = pd.DataFrame(detected_peaks_list)
+        
+        # Sort rows by intensity descending
+        peaks_df = peaks_df.sort_values(by="intensity", ascending=False).reset_index(drop=True)
+        
+        logger.info("Successfully verified %d peaks crossing the 5%% threshold rule.", len(peaks_df))
         return peaks_df
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _deg_per_point(two_theta: np.ndarray) -> float:
-        """Average angular step size in degrees per data point."""
-        if len(two_theta) < 2:
-            return 1.0
-        return float(np.mean(np.diff(two_theta)))
-
-    @staticmethod
-    def _empty_result() -> pd.DataFrame:
-        return pd.DataFrame(columns=["index", "two_theta", "intensity", "fwhm_deg", "prominence"])

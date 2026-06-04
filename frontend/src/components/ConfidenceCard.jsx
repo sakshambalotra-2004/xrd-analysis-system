@@ -43,10 +43,13 @@ export function ConfidenceCard({
         />
       </div>
 
+      {/* FIXED: Added 'idx' to the map loop to create unique keys and prevent console warnings */}
       {detectedPhases.length > 1 && (
         <div className="phase-tags">
-          {detectedPhases.map((p) => (
-            <span key={p} className="phase-tag">{p}</span>
+          {detectedPhases.map((p, idx) => (
+            <span key={`${p}-${idx}`} className="phase-tag">
+              {p}
+            </span>
           ))}
         </div>
       )}

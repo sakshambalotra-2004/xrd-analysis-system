@@ -2,20 +2,7 @@
 routes/analysis_routes.py
 ==========================
 Analysis Routes — REST endpoints that trigger and retrieve XRD analysis.
-
-Endpoints
----------
-POST /api/analysis/{file_id}
-    Run the full 10-stage analysis pipeline for an uploaded file.
-
-GET /api/analysis/{file_id}
-    Retrieve stored analysis results for a file_id.
-
-GET /api/analysis/{file_id}/peaks
-    Return the detected peaks table as JSON.
-
-GET /api/analysis/compounds
-    List all standard compounds in the database.
+Fully synchronized to explicitly map and serialize polytype properties.
 """
 
 import logging
@@ -25,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel
 
 from config import settings
+from services.origin_exporter import OriginExporter
 from services.csv_reader import CSVReadError, CSVReader
 from services.noise_filter import NoiseFilter
 from services.peak_detector import PeakDetector
@@ -46,11 +34,16 @@ crystal_analyzer = CrystalAnalyzer()
 graph_generator = GraphGenerator()
 report_generator = ReportGenerator()
 file_handler = FileHandler()
+origin_exporter = OriginExporter()
 
 
 # ---------------------------------------------------------------------------
-# Response models
+# Request & Response Pydantic models
 # ---------------------------------------------------------------------------
+
+class AnalysisRequest(BaseModel):
+    file_id: str
+
 
 class PeakRow(BaseModel):
     two_theta: float
@@ -68,6 +61,8 @@ class MatchedPeakRow(BaseModel):
     h: int
     k: int
     l: int
+    phase_name: str
+    polytype: str
 
 
 class AnalysisResponse(BaseModel):
@@ -75,6 +70,7 @@ class AnalysisResponse(BaseModel):
     status: str
     compound_name: str
     formula: str
+    polytype: str = ""  # FIXED: Default value prevents future ValidationErrors
     crystal_system: str
     space_group: str
     confidence_score: float
@@ -88,193 +84,234 @@ class AnalysisResponse(BaseModel):
     graph_standard: str
     graph_overlay: str
     report_pdf: str
+    origin_project: str
+    full_two_theta: list[float]
+    full_intensity: list[float]
 
 
 # ---------------------------------------------------------------------------
-# Pipeline execution
+# Core Pipeline Execution
 # ---------------------------------------------------------------------------
 
 def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
-    """Execute the full 10-stage XRD analysis pipeline."""
-    logger.info("Starting analysis pipeline for file_id=%s", file_id)
+    """Execute the full 10-stage XRD analysis pipeline with fail-safe fallbacks."""
+    logger.info("Starting analysis pipeline execution for file_id=%s", file_id)
 
-    # Stage 1 — CSV Reader
+    # Core mathematical processing stages
     df = csv_reader.load(file_path)
-
-    # Stage 2 — Noise Filter
     df_smooth = noise_filter.filter(df)
-
-    # Stage 3 — Peak Detector
     peaks_df = peak_detector.detect(df_smooth)
-
-    # Stage 4 & 5 — Peak Matching + Similarity Scoring
+    
     candidates = peak_matcher.match(peaks_df)
     best_match = candidates[0] if candidates else None
 
-    # Stage 6–9 — Crystal Analysis
-    analysis = crystal_analyzer.analyze(peaks_df, best_match, all_matches=candidates)
-
-    # Stage 8 — Graph Visualisation
-    graph_paths = graph_generator.generate_all(df_smooth, peaks_df, best_match, file_id)
-
-    # Stage 10 — Report Generation
-    pdf_path = report_generator.generate(file_id, analysis, peaks_df, graph_paths, best_match)
-
-    # Persist results
-    file_handler.save_analysis_result(file_id, analysis, pdf_path)
-    # Persist peaks
-    file_handler.save_peaks(file_id, [
-        {
-            "two_theta": round(float(r["two_theta"]), 4),
-            "intensity": round(float(r["intensity"]), 2),
-            "fwhm_deg": round(float(r["fwhm_deg"]), 4),
-            "prominence": round(float(r["prominence"]), 2),
-        }
-        for _, r in peaks_df.iterrows()
-    ])
-
-    peaks_out = [
-        PeakRow(
-            two_theta=round(float(r["two_theta"]), 4),
-            intensity=round(float(r["intensity"]), 2),
-            fwhm_deg=round(float(r["fwhm_deg"]), 4),
-            prominence=round(float(r["prominence"]), 2),
-        )
-        for _, r in peaks_df.iterrows()
-    ]
-
-    matched_peaks_out: list[MatchedPeakRow] = []
+    # Check for valid crystalline match entries
+    is_crystalline_match = False
     if best_match:
-        matched_peaks_out = [
-            MatchedPeakRow(
-                two_theta_exp=round(mp.two_theta_exp, 4),
-                two_theta_std=round(mp.two_theta_std, 4),
-                delta_two_theta=round(mp.delta_two_theta, 4),
-                d_spacing=round(mp.d_spacing, 4),
-                intensity_std=round(mp.intensity_std, 2),
-                h=mp.h, k=mp.k, l=mp.l,
-            )
-            for mp in best_match.matched_peaks
-        ]
+        confidence = float(getattr(best_match, "similarity_score", getattr(best_match, "confidence_score", 0.0)))
+        if confidence >= settings.MIN_SIMILARITY_SCORE:
+            is_crystalline_match = True
+
+    if not is_crystalline_match:
+        logger.info("Sample file_id=%s determined to be Amorphous / Background Matrix.", file_id)
+        best_match = None
+
+    # Structural math analysis stage
+    analysis = crystal_analyzer.analyze(peaks_df, best_match, all_matches=candidates if is_crystalline_match else [])
+
+    # Extract polytype parameter cleanly to feed the response instantiation block
+    detected_polytype = str(getattr(best_match, "polytype", "")) if best_match else ""
+
+    # =========================================================================
+    # VISUAL & REPORTING ASSETS (Fail-Safe Non-Blocking Wrappers)
+    # =========================================================================
+    try:
+        graph_paths = graph_generator.generate_all(df_smooth, peaks_df, best_match, file_id)
+    except Exception as graph_exc:
+        logger.error("Visual graph rendering bypassed due to an internal exception: %s", graph_exc)
+        class EmptyGraphPaths:
+            experimental = ""
+            standard = ""
+            overlay = ""
+        graph_paths = EmptyGraphPaths()
+
+    try:
+        pdf_path = report_generator.generate(file_id, analysis, peaks_df, graph_paths, best_match)
+    except Exception as pdf_exc:
+        logger.error("PDF document generation bypassed due to an internal exception: %s", pdf_exc)
+        pdf_path = ""
+
+    try:
+        origin_results = origin_exporter.export_project_and_plots(file_id, df_smooth, peaks_df, best_match)
+        opju_path = str(origin_results.get("project_path", "")) if isinstance(origin_results, dict) else str(getattr(origin_results, "project_path", ""))
+    except Exception as origin_exc:
+        logger.warning("Origin Project export bypassed due to an internal exception: %s", origin_exc)
+        opju_path = ""
+
+    # =========================================================================
+    # PERSISTENCE LAYER SYNCHRONIZATION
+    # =========================================================================
+    file_handler.save_analysis_result(file_id, analysis, pdf_path)
+    
+    # Store detected peak arrays
+    peaks_list = []
+    for _, r in peaks_df.iterrows():
+        peaks_list.append({
+            "two_theta": round(float(r.get("two_theta", r.iloc[0] if len(r) > 0 else 0.0)), 4),
+            "intensity": round(float(r.get("intensity", r.iloc[1] if len(r) > 1 else 0.0)), 2),
+            "fwhm_deg": round(float(r.get("fwhm_deg", 0.0)), 4),
+            "prominence": round(float(r.get("prominence", 0.0)), 2),
+        })
+    file_handler.save_peaks(file_id, peaks_list)
+
+    # Store matched reference peaks
+    matched_peaks_out: list[MatchedPeakRow] = []
+    if is_crystalline_match and best_match:
+        saved_matches = []
+        for mp in getattr(best_match, "matched_peaks", []):
+            saved_matches.append({
+                "two_theta_exp": float(getattr(mp, "two_theta_exp", 0.0)),
+                "two_theta_std": float(getattr(mp, "two_theta_std", 0.0)),
+                "delta_two_theta": float(getattr(mp, "delta_two_theta", 0.0)),
+                "d_spacing": float(getattr(mp, "d_spacing", 0.0)),
+                "intensity_std": float(getattr(mp, "intensity_std", 0.0)),
+                "h": int(getattr(mp, "h", 0)),
+                "k": int(getattr(mp, "k", 0)),
+                "l": int(getattr(mp, "l", 0)),
+                "phase_name": str(getattr(mp, "phase_name", getattr(best_match, "compound_name", "Unknown"))),
+                "polytype": str(getattr(mp, "polytype", getattr(best_match, "polytype", "")))
+            })
+        file_handler.save_matched_peaks(file_id, saved_matches)
+        
+        for sm in saved_matches:
+            matched_peaks_out.append(MatchedPeakRow(**sm))
+    else:
+        file_handler.save_matched_peaks(file_id, [])
+
+    peaks_out = [PeakRow(**p) for p in peaks_list]
+
+    # Resolve alignment column headers safely
+    angle_col = 'two_theta' if 'two_theta' in df_smooth.columns else ('Angle' if 'Angle' in df_smooth.columns else df_smooth.columns[0])
+    intensity_col = 'intensity' if 'intensity' in df_smooth.columns else ('Intensity' if 'Intensity' in df_smooth.columns else df_smooth.columns[1])
 
     return AnalysisResponse(
         file_id=file_id,
         status="done",
-        compound_name=analysis.primary_compound,
-        formula=analysis.formula,
-        crystal_system=analysis.crystal_system,
-        space_group=analysis.space_group,
-        confidence_score=analysis.confidence_score,
-        crystallite_size_nm=analysis.crystallite_size_nm,
-        mean_peak_shift_deg=analysis.mean_peak_shift_deg,
-        strain_indicator=analysis.strain_indicator,
-        detected_phases=analysis.detected_phases,
+        compound_name=str(getattr(analysis, "primary_compound", "No Crystalline Match Found")),
+        formula=str(getattr(analysis, "formula", "N/A")),
+        polytype=detected_polytype,  # FIXED: Explicitly mapped here
+        crystal_system=str(getattr(analysis, "crystal_system", "Disordered / Amorphous")),
+        space_group=str(getattr(analysis, "space_group", "N/A")),
+        confidence_score=float(getattr(analysis, "confidence_score", 0.0)),
+        crystallite_size_nm=float(getattr(analysis, "crystallite_size_nm", 0.0)),
+        mean_peak_shift_deg=float(getattr(analysis, "mean_peak_shift_deg", 0.0)),
+        strain_indicator=str(getattr(analysis, "strain_indicator", "N/A")),
+        detected_phases=list(getattr(analysis, "detected_phases", ["Amorphous Background Matrix"])),
         peaks=peaks_out,
         matched_peaks=matched_peaks_out,
-        graph_experimental=graph_paths.experimental,
-        graph_standard=graph_paths.standard,
-        graph_overlay=graph_paths.overlay,
-        report_pdf=pdf_path,
+        graph_experimental=str(getattr(graph_paths, "experimental", "")),
+        graph_standard=str(getattr(graph_paths, "standard", "")),
+        graph_overlay=str(getattr(graph_paths, "overlay", "")),
+        report_pdf=str(pdf_path),
+        origin_project=str(opju_path),
+        full_two_theta=df_smooth[angle_col].astype(float).tolist(),
+        full_intensity=df_smooth[intensity_col].astype(float).tolist(),
     )
 
 
 # ---------------------------------------------------------------------------
-# Endpoints
+# REST Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post(
-    "/{file_id}",
-    response_model=AnalysisResponse,
-    summary="Run XRD analysis pipeline",
-    description="Runs all 10 pipeline stages for the uploaded file and returns full results.",
-)
-async def run_analysis(file_id: str):
-    """Trigger the full XRD analysis pipeline for a given file_id."""
+@router.post("/{file_id}", response_model=AnalysisResponse, summary="Run XRD pipeline (Path style)")
+async def run_analysis_path(file_id: str):
     record = file_handler.get_upload_record(file_id)
     if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No uploaded file found for file_id '{file_id}'.",
-        )
-
-    file_path = record["file_path"]
-    if not Path(file_path).exists():
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="Uploaded file no longer exists on disk.",
-        )
-
-    try:
-        result = _run_pipeline(file_id, file_path)
-    except CSVReadError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    except Exception as exc:
-        logger.exception("Pipeline failed for file_id=%s", file_id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Analysis failed: {exc}",
-        )
-
-    return result
+        raise HTTPException(status_code=404, detail=f"No uploaded file found for file_id '{file_id}'.")
+    return _run_pipeline(file_id, record["file_path"])
 
 
-@router.get(
-    "/{file_id}",
-    response_model=AnalysisResponse,
-    summary="Get stored analysis results",
-)
+@router.post("", response_model=AnalysisResponse, summary="Run XRD pipeline (JSON body style)")
+async def run_analysis_body(req: AnalysisRequest):
+    record = file_handler.get_upload_record(req.file_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"No uploaded file found for file_id '{req.file_id}'.")
+    return _run_pipeline(req.file_id, record["file_path"])
+
+
+@router.get("/{file_id}", response_model=AnalysisResponse, summary="Get stored analysis results")
 async def get_analysis(file_id: str):
-    """Return previously computed analysis results for a file_id."""
+    """Return previously computed analysis results safely from history."""
     result = file_handler.get_analysis_result(file_id)
     if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No analysis found for file_id '{file_id}'. Run POST first.",
-        )
+        raise HTTPException(status_code=404, detail=f"No analysis found for file_id '{file_id}'.")
 
-    # Fetch peaks from the peaks table
-    peaks_raw = file_handler.get_peaks(file_id)
+    peaks_raw = file_handler.get_peaks(file_id) or []
     peaks_out = [
         PeakRow(
-            two_theta=round(float(p["two_theta"]), 4),
-            intensity=round(float(p["intensity"]), 2),
-            fwhm_deg=round(float(p.get("fwhm_deg") or 0), 4),
-            prominence=round(float(p.get("prominence") or 0), 2),
+            two_theta=round(float(p.get("two_theta", 0.0)), 4),
+            intensity=round(float(p.get("intensity", 0.0)), 2),
+            fwhm_deg=round(float(p.get("fwhm_deg", 0.0)), 4),
+            prominence=round(float(p.get("prominence", 0.0)), 2),
         )
         for p in peaks_raw
     ]
 
-    # matched_peaks are not stored separately — return empty list on GET
-    # (full matched_peaks are available via POST which re-runs the pipeline)
+    matched_raw = file_handler.get_matched_peaks(file_id) or []
+    matched_peaks_out = [
+        MatchedPeakRow(
+            two_theta_exp=round(float(m.get("two_theta_exp", 0.0)), 4),
+            two_theta_std=round(float(m.get("two_theta_std", 0.0)), 4),
+            delta_two_theta=round(float(m.get("delta_two_theta", 0.0)), 4),
+            d_spacing=round(float(m.get("d_spacing", 0.0)), 4),
+            intensity_std=round(float(m.get("intensity_std", 0.0)), 2),
+            h=int(m.get("h", 0)), k=int(m.get("k", 0)), l=int(m.get("l", 0)),
+            phase_name=str(m.get("phase_name", result.get("compound_name", "Unknown"))),
+            polytype=str(m.get("polytype", result.get("polytype", "")))
+        )
+        for m in matched_raw
+    ]
+
+    raw_phases = result.get("detected_phases") or ["Amorphous Background Matrix"]
+    if isinstance(raw_phases, str):
+        raw_phases = [p.strip() for p in raw_phases.split(",") if p.strip()]
+
+    project_dir = Path(settings.REPORTS_BASE_DIR) / "origin_files"
+    opju_file_path = project_dir / f"xrd_analysis_{file_id}.opju"
+    origin_project_status = str(opju_file_path) if opju_file_path.exists() else ""
+
+    record = file_handler.get_upload_record(file_id)
+    x_pts, y_pts = [], []
+    if record and Path(record["file_path"]).exists():
+        try:
+            df_smooth = noise_filter.filter(csv_reader.load(record["file_path"]))
+            angle_col = 'two_theta' if 'two_theta' in df_smooth.columns else ('Angle' if 'Angle' in df_smooth.columns else df_smooth.columns[0])
+            intensity_col = 'intensity' if 'intensity' in df_smooth.columns else ('Intensity' if 'Intensity' in df_smooth.columns else df_smooth.columns[1])
+            x_pts = df_smooth[angle_col].astype(float).tolist()
+            y_pts = df_smooth[intensity_col].astype(float).tolist()
+        except:
+            pass
+
     return AnalysisResponse(
         file_id=file_id,
         status="done",
-        compound_name=result.get("compound_name") or "",
-        formula=result.get("formula") or "",
-        crystal_system=result.get("crystal_system") or "",
-        space_group=result.get("space_group") or "",
-        confidence_score=float(result.get("confidence_score") or 0),
-        crystallite_size_nm=float(result.get("crystallite_size_nm") or 0),
-        mean_peak_shift_deg=float(result.get("mean_peak_shift_deg") or 0),
-        strain_indicator=str(result.get("strain_indicator") or ""),
-        detected_phases=result.get("detected_phases") or [],
+        compound_name=str(result.get("compound_name", "No Crystalline Match Found")),
+        formula=str(result.get("formula", "N/A")),
+        polytype=str(result.get("polytype", "")),  # FIXED: Explicitly mapped here
+        crystal_system=str(result.get("crystal_system", "Disordered / Amorphous")),
+        space_group=str(result.get("space_group", "N/A")),
+        confidence_score=float(result.get("confidence_score", 0.0)),
+        crystallite_size_nm=float(result.get("crystallite_size_nm", 0.0)),
+        mean_peak_shift_deg=float(result.get("mean_peak_shift_deg", 0.0)),
+        strain_indicator=str(result.get("strain_indicator", "N/A")),
+        detected_phases=list(raw_phases),
         peaks=peaks_out,
-        matched_peaks=[],
-        graph_experimental=result.get("graph_experimental") or "",
-        graph_standard=result.get("graph_standard") or "",
-        graph_overlay=result.get("graph_overlay") or "",
-        report_pdf=result.get("report_pdf") or "",
+        matched_peaks=matched_peaks_out,
+        graph_experimental=str(result.get("graph_experimental", "")),
+        graph_standard=str(result.get("graph_standard", "")),
+        graph_overlay=str(result.get("graph_overlay", "")),
+        report_pdf=str(result.get("report_pdf", "")),
+        origin_project=origin_project_status,
+        full_two_theta=x_pts,
+        full_intensity=y_pts,
     )
-
-@router.get(
-    "/compounds",
-    summary="List all standard compounds",
-)
-async def list_compounds():
-    """Return a list of all compound names and formulas in the standards database."""
-    matcher = PeakMatcher()
-    compounds = [
-        {"compound_name": s.get("compound_name"), "formula": s.get("formula")}
-        for s in matcher._standards
-    ]
-    return {"total": len(compounds), "compounds": compounds}

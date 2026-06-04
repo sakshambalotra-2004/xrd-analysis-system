@@ -18,8 +18,6 @@ Usage:
 
     ca = CrystalAnalyzer()
     analysis = ca.analyze(peaks_df, best_match)
-    print(analysis.crystallite_size_nm)   # e.g. 42 nm
-    print(analysis.peak_shift_deg)        # e.g. 0.12°
 """
 
 import logging
@@ -125,6 +123,10 @@ class CrystalAnalyzer:
 
         if peaks_df.empty:
             logger.warning("Empty peaks_df in CrystalAnalyzer.analyze — returning defaults.")
+            # Explicit default fallback to prevent empty labels on frontend
+            result.primary_compound = "No Crystalline Match Found"
+            result.crystal_system = "Disordered / Amorphous"
+            result.detected_phases = ["Amorphous Background Matrix"]
             return result
 
         # ---- 1. d-Spacings (Bragg's Law) ----
@@ -139,7 +141,7 @@ class CrystalAnalyzer:
             result.crystallite_size_angstrom = round(size_A, 2)
             result.crystallite_size_nm = round(size_A / 10.0, 2)
 
-        # ---- 3. Peak shift ----
+        # ---- 3. Structural Information Processing ----
         if best_match:
             shifts = [mp.delta_two_theta for mp in best_match.matched_peaks]
             # Preserve sign: positive = sample shifted to higher 2θ
@@ -151,19 +153,34 @@ class CrystalAnalyzer:
             result.mean_peak_shift_deg = round(float(np.mean(signed_shifts)), 4) if signed_shifts else 0.0
             result.strain_indicator = self._strain_indicator(result.mean_peak_shift_deg)
 
-            # ---- 4. Compound info ----
-            result.primary_compound = best_match.compound_name
+            # UPGRADE: Extract polytype from standard card and inject safely
+            polytype_val = getattr(best_match, "polytype", "")
+            polytype_suffix = f" ({polytype_val})" if polytype_val else ""
+
+            result.primary_compound = f"{best_match.compound_name}{polytype_suffix}"
             result.formula = best_match.formula
             result.crystal_system = best_match.crystal_system
             result.space_group = best_match.space_group
             result.confidence_score = best_match.similarity_score
+        else:
+            # Amorphous protective fallback mode
+            result.primary_compound = "No Crystalline Match Found"
+            result.formula = "N/A"
+            result.crystal_system = "Disordered / Amorphous"
+            result.space_group = "N/A"
+            result.confidence_score = 0.0
 
-        # ---- 5. Multi-phase detection ----
-        if all_matches:
-            result.detected_phases = [
-                m.formula for m in all_matches
-                if m.similarity_score >= settings.MIN_SIMILARITY_SCORE
-            ]
+        # ---- 4. Multi-phase detection ----
+        if all_matches and best_match:
+            result.detected_phases = []
+            for m in all_matches:
+                if m.similarity_score >= settings.MIN_SIMILARITY_SCORE:
+                    # UPGRADE: Stitch polytypes directly into formula string list cards (e.g. "SiC (3C)")
+                    p_val = getattr(m, "polytype", "")
+                    p_suffix = f" ({p_val})" if p_val else ""
+                    result.detected_phases.append(f"{m.formula}{p_suffix}")
+        else:
+            result.detected_phases = ["Amorphous Background Matrix"]
 
         logger.info(
             "Analysis complete — D=%.1f nm, Δ2θ=%.4f°, strain=%s, phases=%s",
@@ -200,7 +217,7 @@ class CrystalAnalyzer:
 
     def crystallite_size(self, two_theta_deg: float, fwhm_deg: float) -> float:
         """
-        Scherrer Equation: D = K λ / (β cos θ).
+        Scherrer Equation: D = K λ / (beta * cos θ).
 
         Parameters
         ----------
@@ -218,6 +235,8 @@ class CrystalAnalyzer:
             return 0.0
         theta_rad = math.radians(two_theta_deg / 2.0)
         beta_rad = math.radians(fwhm_deg)
+        if beta_rad == 0 or math.cos(theta_rad) == 0:
+            return 0.0
         return round((self.K * self.lam) / (beta_rad * math.cos(theta_rad)), 2)
 
     # ------------------------------------------------------------------

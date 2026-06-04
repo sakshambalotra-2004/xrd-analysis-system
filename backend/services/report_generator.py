@@ -3,27 +3,8 @@ services/report_generator.py
 =============================
 Final Report Output Module — Stage 10 of the XRD analysis pipeline.
 
-Generates a multi-page PDF report containing:
-  - Summary header   : compound name, formula, crystal system, confidence
-  - Graph page       : experimental pattern, standard pattern, overlay chart
-  - Peak match table : 2θ, d(Å), I(rel.), h, k, l, match status
-  - Analysis results : crystallite size, peak shift, detected phases
-  - Crystal info     : space group, lattice system, peak indexing
-
-Uses ReportLab for PDF generation.
-
-Usage:
-    from services.report_generator import ReportGenerator
-
-    gen = ReportGenerator()
-    pdf_path = gen.generate(
-        file_id="abc123",
-        analysis=crystal_analysis,
-        peaks_df=peaks_df,
-        graph_paths=graph_paths,
-        best_match=match_result,
-    )
-    print(pdf_path)   # /reports/pdf_reports/abc123_report.pdf
+Generates a multi-page PDF report containing crystallographic summaries,
+complete with verified compound phase and polytype notations.
 """
 
 import logging
@@ -75,6 +56,50 @@ class ReportGenerator:
         self._styles = getSampleStyleSheet()
         self._add_custom_styles()
 
+    def _get_descriptive_phases(self, raw_phases) -> list[str]:
+        """Convert plain database formula strings into clean, human-readable names with polytypes."""
+        if not raw_phases:
+            return []
+        
+        if isinstance(raw_phases, str):
+            raw_phases = [p.strip() for p in raw_phases.split(",") if p.strip()]
+            
+        descriptive_phases = []
+        for phase in raw_phases:
+            base_formula = phase
+            polytype_part = ""
+            
+            # Extract nested polytype parameters inside brackets safely
+            if "(" in phase and ")" in phase:
+                base_formula = phase.split("(")[0].strip()
+                polytype_part = phase.split("(")[1].split(")")[0].strip()
+            elif "[" in phase and "]" in phase:
+                base_formula = phase.split("[")[0].strip()
+                polytype_part = phase.split("[")[1].split("]")[0].strip()
+            
+            # Map chemical formulas to expanded description variants
+            if base_formula.lower() in ["sic", "silicon_carbide", "silicon carbide"]:
+                name = "Silicon Carbide"
+            elif base_formula.lower() in ["sio2", "silicon_oxide", "silicon oxide", "quartz"]:
+                name = "Silicon Oxide (Quartz)"
+            elif base_formula.lower() in ["nisi", "nickel_silicon", "nickel silicon"]:
+                name = "Nickel Silicon"
+            elif base_formula.lower() in ["nisi2"]:
+                name = "Nickel Disilicide"
+            elif base_formula.lower() in ["ni2si"]:
+                name = "Dinickel Silicide"
+            elif base_formula.lower() in ["c", "carbon", "graphite"]:
+                name = "Carbon (Graphite)"
+            else:
+                name = base_formula
+                
+            if polytype_part:
+                descriptive_phases.append(f"{name} ({polytype_part})")
+            else:
+                descriptive_phases.append(name)
+                
+        return descriptive_phases
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -87,14 +112,7 @@ class ReportGenerator:
         graph_paths: GraphPaths,
         best_match: MatchResult | None,
     ) -> str:
-        """
-        Build and save the PDF report.
-
-        Returns
-        -------
-        str
-            Absolute path of the saved PDF file.
-        """
+        """Build and save the PDF report."""
         out_path = str(self.out_dir / f"{file_id}_report.pdf")
         doc = SimpleDocTemplate(
             out_path,
@@ -136,13 +154,13 @@ class ReportGenerator:
 
     def _build_title(self, file_id: str) -> list:
         return [
-            Paragraph("XRD Compound Identification Report",
-                      self._styles["ReportTitle"]),
+            Paragraph("XRD Compound Identification Report", self._styles["ReportTitle"]),
             Paragraph(f"File ID: {file_id}", self._styles["Subtitle"]),
             Spacer(1, 0.4 * cm),
         ]
 
     def _build_summary(self, a: CrystalAnalysis) -> list:
+        cleaned_phases = self._get_descriptive_phases(a.detected_phases)
         data = [
             ["Compound Identified", a.primary_compound or "—"],
             ["Chemical Formula",    a.formula or "—"],
@@ -152,7 +170,7 @@ class ReportGenerator:
             ["Crystallite Size",    f"{a.crystallite_size_nm:.1f} nm  ({a.crystallite_size_angstrom:.1f} Å)"],
             ["Mean Peak Shift",     f"{a.mean_peak_shift_deg:+.4f}°"],
             ["Strain Indicator",    a.strain_indicator],
-            ["Detected Phases",     ", ".join(a.detected_phases) or "—"],
+            ["Detected Phases",     ", ".join(cleaned_phases) or "—"],
         ]
         table = Table(data, colWidths=[6 * cm, 10 * cm])
         table.setStyle(TableStyle([
@@ -177,8 +195,7 @@ class ReportGenerator:
         ]
 
     def _build_graphs(self, paths: GraphPaths) -> list:
-        story = [Paragraph("XRD Patterns", self._styles["SectionHead"]),
-                 Spacer(1, 0.2 * cm)]
+        story = [Paragraph("XRD Patterns", self._styles["SectionHead"]), Spacer(1, 0.2 * cm)]
         img_w = PAGE_W - 2 * MARGIN
         for label, fpath in [
             ("Experimental XRD Pattern", paths.experimental),
@@ -192,20 +209,27 @@ class ReportGenerator:
         return story
 
     def _build_peak_table(self, match: MatchResult) -> list:
-        header = ["2θ exp (°)", "2θ std (°)", "Δ2θ (°)", "d (Å)", "I(rel.)", "h", "k", "l", "Match"]
+        # UPGRADE: Integrated a dedicated Phase column to house polytype labels elegantly
+        header = ["Phase/Polytype", "2θ exp (°)", "2θ std (°)", "Δ2θ (°)", "d (Å)", "I(rel.)", "h k l", "Match"]
         rows = [header]
+        
         for mp in match.matched_peaks:
+            p_val = getattr(mp, "polytype", "")
+            p_suffix = f" ({p_val})" if p_val else ""
+            phase_label = f"{mp.phase_name}{p_suffix}" if getattr(mp, "phase_name", "") else f"{match.compound_name}{p_suffix}"
+            
             rows.append([
+                phase_label,
                 f"{mp.two_theta_exp:.3f}",
                 f"{mp.two_theta_std:.3f}",
                 f"{mp.delta_two_theta:+.4f}",
                 f"{mp.d_spacing:.4f}",
                 f"{mp.intensity_std:.0f}",
-                str(mp.h), str(mp.k), str(mp.l),
+                f"({mp.h} {mp.k} {mp.l})",
                 "✓",
             ])
 
-        col_w = [(PAGE_W - 2 * MARGIN) / len(header)] * len(header)
+        col_w = [3.4 * cm, 1.8 * cm, 1.8 * cm, 1.8 * cm, 1.6 * cm, 1.4 * cm, 1.8 * cm, 1.2 * cm]
         table = Table(rows, colWidths=col_w)
         style = [
             ("BACKGROUND",   (0, 0), (-1, 0), HEADER_BG),
@@ -213,10 +237,11 @@ class ReportGenerator:
             ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
             ("FONTSIZE",     (0, 0), (-1, -1), 8),
             ("ALIGN",        (0, 0), (-1, -1), "CENTER"),
+            ("ALIGN",        (0, 1), (0, -1), "LEFT"), # Left align text strings in column 0
             ("BOX",          (0, 0), (-1, -1), 0.5, colors.grey),
             ("INNERGRID",    (0, 0), (-1, -1), 0.3, colors.lightgrey),
-            ("TOPPADDING",   (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+            ("TOPPADDING",   (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
         ]
         for i in range(1, len(rows)):
             bg = ROW_MATCH if i % 2 == 0 else colors.white
@@ -232,6 +257,7 @@ class ReportGenerator:
         ]
 
     def _build_analysis(self, a: CrystalAnalysis) -> list:
+        cleaned_phases = self._get_descriptive_phases(a.detected_phases)
         rows = [
             ["Parameter", "Value"],
             ["Crystallite Size (Scherrer)", f"{a.crystallite_size_nm:.2f} nm"],
@@ -239,7 +265,7 @@ class ReportGenerator:
             ["Mean Peak Shift (Δ2θ)", f"{a.mean_peak_shift_deg:+.4f}°"],
             ["Strain Indicator", a.strain_indicator],
             ["Confidence Score", f"{a.confidence_score:.1f} %"],
-            ["Detected Phases", ", ".join(a.detected_phases) or "Single phase"],
+            ["Detected Phases", ", ".join(cleaned_phases) or "Single phase"],
         ]
         table = Table(rows, colWidths=[8 * cm, 8 * cm])
         table.setStyle(TableStyle([
@@ -264,8 +290,8 @@ class ReportGenerator:
     def _build_crystal_info(self, a: CrystalAnalysis) -> list:
         rows = [
             ["Property", "Value"],
-            ["Compound", a.primary_compound or "—"],
-            ["Formula", a.formula or "—"],
+            ["Compound Structure", a.primary_compound or "—"],
+            ["Chemical Formula", a.formula or "—"],
             ["Crystal System", a.crystal_system or "—"],
             ["Space Group", a.space_group or "—"],
         ]
@@ -288,28 +314,16 @@ class ReportGenerator:
             table,
         ]
 
-    # ------------------------------------------------------------------
-    # Custom paragraph styles
-    # ------------------------------------------------------------------
-
     def _add_custom_styles(self) -> None:
         self._styles.add(ParagraphStyle(
-            "ReportTitle",
-            parent=self._styles["Title"],
-            fontSize=18, textColor=HEADER_BG, spaceAfter=4,
+            "ReportTitle", parent=self._styles["Title"], fontSize=18, textColor=HEADER_BG, spaceAfter=4,
         ))
         self._styles.add(ParagraphStyle(
-            "Subtitle",
-            parent=self._styles["Normal"],
-            fontSize=10, textColor=colors.grey, spaceAfter=6,
+            "Subtitle", parent=self._styles["Normal"], fontSize=10, textColor=colors.grey, spaceAfter=6,
         ))
         self._styles.add(ParagraphStyle(
-            "SectionHead",
-            parent=self._styles["Heading2"],
-            fontSize=12, textColor=HEADER_BG, spaceBefore=10, spaceAfter=4,
+            "SectionHead", parent=self._styles["Heading2"], fontSize=12, textColor=HEADER_BG, spaceBefore=10, spaceAfter=4,
         ))
         self._styles.add(ParagraphStyle(
-            "FigCaption",
-            parent=self._styles["Normal"],
-            fontSize=9, textColor=colors.grey, spaceAfter=2, fontName="Helvetica-Oblique",
+            "FigCaption", parent=self._styles["Normal"], fontSize=9, textColor=colors.grey, spaceAfter=2, fontName="Helvetica-Oblique",
         ))
