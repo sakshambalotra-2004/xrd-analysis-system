@@ -123,8 +123,8 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
     detected_polytype = str(getattr(best_match, "polytype", "")) if best_match else ""
 
     # =========================================================================
-    # VISUAL & REPORTING ASSETS (Fail-Safe Non-Blocking Wrappers)
-    # =========================================================================
+# VISUAL & REPORTING ASSETS (Fail-Safe Non-Blocking Wrappers)
+# =========================================================================
     try:
         graph_paths = graph_generator.generate_all(df_smooth, peaks_df, best_match, file_id)
     except Exception as graph_exc:
@@ -136,7 +136,16 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
         graph_paths = EmptyGraphPaths()
 
     try:
-        pdf_path = report_generator.generate(file_id, analysis, peaks_df, graph_paths, best_match)
+        # UPGRADE: Grab the top confident matches (up to 3) so the PDF loops through all polytypes!
+        top_matches = candidates[:3] if is_crystalline_match and candidates else None
+        
+        pdf_path = report_generator.generate(
+            file_id=file_id, 
+            analysis=analysis, 
+            peaks_df=peaks_df, 
+            graph_paths=graph_paths, 
+            best_match=top_matches # Passing the list here triggers the multi-table loop
+        )
     except Exception as pdf_exc:
         logger.error("PDF document generation bypassed due to an internal exception: %s", pdf_exc)
         pdf_path = ""
@@ -147,7 +156,6 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
     except Exception as origin_exc:
         logger.warning("Origin Project export bypassed due to an internal exception: %s", origin_exc)
         opju_path = ""
-
     # =========================================================================
     # PERSISTENCE LAYER SYNCHRONIZATION
     # =========================================================================

@@ -69,7 +69,6 @@ class ReportGenerator:
             base_formula = phase
             polytype_part = ""
             
-            # Extract nested polytype parameters inside brackets safely
             if "(" in phase and ")" in phase:
                 base_formula = phase.split("(")[0].strip()
                 polytype_part = phase.split("(")[1].split(")")[0].strip()
@@ -77,7 +76,6 @@ class ReportGenerator:
                 base_formula = phase.split("[")[0].strip()
                 polytype_part = phase.split("[")[1].split("]")[0].strip()
             
-            # Map chemical formulas to expanded description variants
             if base_formula.lower() in ["sic", "silicon_carbide", "silicon carbide"]:
                 name = "Silicon Carbide"
             elif base_formula.lower() in ["sio2", "silicon_oxide", "silicon oxide", "quartz"]:
@@ -100,17 +98,13 @@ class ReportGenerator:
                 
         return descriptive_phases
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def generate(
         self,
         file_id: str,
         analysis: CrystalAnalysis,
         peaks_df: pd.DataFrame,
         graph_paths: GraphPaths,
-        best_match: MatchResult | None,
+        best_match: MatchResult | list | None,
     ) -> str:
         """Build and save the PDF report."""
         out_path = str(self.out_dir / f"{file_id}_report.pdf")
@@ -134,9 +128,17 @@ class ReportGenerator:
         # 3 — Graphs
         story.extend(self._build_graphs(graph_paths))
 
-        # 4 — Peak match table
+        # 4a — ALL Raw Experimental Peaks
+        if peaks_df is not None and not peaks_df.empty:
+            story.extend(self._build_raw_peaks_table(peaks_df))
+
+        # 4b — Peak Match Tables
         if best_match:
-            story.extend(self._build_peak_table(best_match))
+            if isinstance(best_match, list):
+                for match in best_match:
+                    story.extend(self._build_peak_table(match))
+            else:
+                story.extend(self._build_peak_table(best_match))
 
         # 5 — Analysis results
         story.extend(self._build_analysis(analysis))
@@ -161,23 +163,26 @@ class ReportGenerator:
 
     def _build_summary(self, a: CrystalAnalysis) -> list:
         cleaned_phases = self._get_descriptive_phases(getattr(a, "detected_phases", []))
-        
-        # UPGRADE: Extract Polytype cleanly for the summary
         polytype_val = getattr(a, "polytype", "")
         compound_display = f"{a.primary_compound} ({polytype_val})" if polytype_val and a.primary_compound else (a.primary_compound or "—")
 
+        # THE FIX: Wrap all potentially long strings in Paragraphs
+        compound_para = Paragraph(compound_display, self._styles["TableCell"])
+        formula_para = Paragraph(a.formula or "—", self._styles["TableCell"])
+        phases_para = Paragraph(", ".join(cleaned_phases) or "—", self._styles["TableCell"])
+
         data = [
-            ["Compound Identified", compound_display],
-            ["Chemical Formula",    a.formula or "—"],
+            ["Compound Identified", compound_para],
+            ["Chemical Formula",    formula_para],
             ["Crystal System",      a.crystal_system or "—"],
             ["Space Group",         a.space_group or "—"],
             ["Confidence Score",    f"{a.confidence_score:.1f} %"],
             ["Crystallite Size",    f"{a.crystallite_size_nm:.1f} nm  ({getattr(a, 'crystallite_size_angstrom', a.crystallite_size_nm * 10):.1f} Å)"],
             ["Mean Peak Shift",     f"{a.mean_peak_shift_deg:+.4f}°"],
             ["Strain Indicator",    a.strain_indicator],
-            ["Detected Phases",     ", ".join(cleaned_phases) or "—"],
+            ["Detected Phases",     phases_para],
         ]
-        table = Table(data, colWidths=[6 * cm, 10 * cm])
+        table = Table(data, colWidths=[6 * cm, 10 * cm], repeatRows=0)
         table.setStyle(TableStyle([
             ("BACKGROUND",  (0, 0), (0, -1), SUBHEAD_BG),
             ("TEXTCOLOR",   (0, 0), (0, -1), TEXT_WHITE),
@@ -191,6 +196,7 @@ class ReportGenerator:
             ("RIGHTPADDING", (0, 0), (-1, -1), 6),
             ("TOPPADDING",   (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
         ]))
         return [
             Paragraph("Analysis Summary", self._styles["SectionHead"]),
@@ -213,18 +219,71 @@ class ReportGenerator:
                 story.append(Spacer(1, 0.3 * cm))
         return story
 
+    def _build_raw_peaks_table(self, df: pd.DataFrame) -> list:
+        header = ["Peak #", "2θ (°)", "Intensity", "FWHM (°)", "Prominence"]
+        rows = [header]
+        
+        df_reset = df.reset_index(drop=True)
+        for idx, row in df_reset.iterrows():
+            rows.append([
+                str(idx + 1),
+                f"{row.get('two_theta', 0.0):.4f}",
+                f"{row.get('intensity', 0.0):.1f}",
+                f"{row.get('fwhm_deg', 0.0):.4f}" if pd.notnull(row.get('fwhm_deg')) else "—",
+                f"{row.get('prominence', 0.0):.1f}" if pd.notnull(row.get('prominence')) else "—",
+            ])
+
+        col_w = [2.0 * cm, 3.5 * cm, 3.5 * cm, 3.5 * cm, 3.5 * cm]
+        table = Table(rows, colWidths=col_w, repeatRows=1)
+        style = [
+            ("BACKGROUND",   (0, 0), (-1, 0), HEADER_BG),
+            ("TEXTCOLOR",    (0, 0), (-1, 0), TEXT_WHITE),
+            ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0, 0), (-1, -1), 8),
+            ("ALIGN",        (0, 0), (-1, -1), "CENTER"),
+            ("BOX",          (0, 0), (-1, -1), 0.5, colors.grey),
+            ("INNERGRID",    (0, 0), (-1, -1), 0.3, colors.lightgrey),
+            ("TOPPADDING",   (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+        ]
+        for i in range(1, len(rows)):
+            bg = ROW_ALT if i % 2 == 0 else colors.white
+            style.append(("BACKGROUND", (0, i), (-1, i), bg))
+        table.setStyle(TableStyle(style))
+
+        return [
+            PageBreak(),
+            Paragraph("Detected Experimental Peaks", self._styles["SectionHead"]),
+            Spacer(1, 0.2 * cm),
+            table,
+            Spacer(1, 0.5 * cm),
+        ]
+
     def _build_peak_table(self, match: MatchResult) -> list:
-        # Integrated a dedicated Phase column to house polytype labels elegantly
+        match_polytype = getattr(match, "polytype", "")
+        match_compound = getattr(match, "compound_name", "Unknown Phase")
+        
+        match_title = f"Reference Peak Alignments: {match_compound}"
+        if match_polytype:
+            match_title += f" ({match_polytype})"
+
         header = ["Phase/Polytype", "2θ exp (°)", "2θ std (°)", "Δ2θ (°)", "d (Å)", "I(rel.)", "h k l", "Match"]
         rows = [header]
         
         for mp in match.matched_peaks:
-            p_val = getattr(mp, "polytype", "")
-            p_suffix = f" ({p_val})" if p_val else ""
-            phase_label = f"{mp.phase_name}{p_suffix}" if getattr(mp, "phase_name", "") else f"{match.compound_name}{p_suffix}"
+            raw_phase = getattr(mp, "phase_name", "") or match_compound
+            cleaned_phase_list = self._get_descriptive_phases([raw_phase])
+            phase_label = cleaned_phase_list[0] if cleaned_phase_list else raw_phase
             
+            p_val = getattr(mp, "polytype", "") or match_polytype
+            if p_val and p_val not in phase_label:
+                phase_label += f" ({p_val})"
+            
+            # THE FIX: Wrap the phase name in a Paragraph
+            phase_para = Paragraph(phase_label, self._styles["TableCellSmallLeft"])
+
             rows.append([
-                phase_label,
+                phase_para,
                 f"{mp.two_theta_exp:.3f}",
                 f"{mp.two_theta_std:.3f}",
                 f"{mp.delta_two_theta:+.4f}",
@@ -235,14 +294,15 @@ class ReportGenerator:
             ])
 
         col_w = [3.4 * cm, 1.8 * cm, 1.8 * cm, 1.8 * cm, 1.6 * cm, 1.4 * cm, 1.8 * cm, 1.2 * cm]
-        table = Table(rows, colWidths=col_w)
+        table = Table(rows, colWidths=col_w, repeatRows=1)
         style = [
             ("BACKGROUND",   (0, 0), (-1, 0), HEADER_BG),
             ("TEXTCOLOR",    (0, 0), (-1, 0), TEXT_WHITE),
             ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
             ("FONTSIZE",     (0, 0), (-1, -1), 8),
             ("ALIGN",        (0, 0), (-1, -1), "CENTER"),
-            ("ALIGN",        (0, 1), (0, -1), "LEFT"), # Left align text strings in column 0
+            ("ALIGN",        (0, 1), (0, -1), "LEFT"),
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
             ("BOX",          (0, 0), (-1, -1), 0.5, colors.grey),
             ("INNERGRID",    (0, 0), (-1, -1), 0.3, colors.lightgrey),
             ("TOPPADDING",   (0, 0), (-1, -1), 4),
@@ -254,8 +314,8 @@ class ReportGenerator:
         table.setStyle(TableStyle(style))
 
         return [
-            PageBreak(),
-            Paragraph("Peak Match Table", self._styles["SectionHead"]),
+            Spacer(1, 0.5 * cm),
+            Paragraph(match_title, self._styles["SectionHead"]),
             Spacer(1, 0.2 * cm),
             table,
             Spacer(1, 0.5 * cm),
@@ -263,6 +323,11 @@ class ReportGenerator:
 
     def _build_analysis(self, a: CrystalAnalysis) -> list:
         cleaned_phases = self._get_descriptive_phases(getattr(a, "detected_phases", []))
+        
+        # THE FIX: Wrap the detected phases list in a Paragraph
+        phases_str = ", ".join(cleaned_phases) or "Single phase"
+        phases_para = Paragraph(phases_str, self._styles["TableCell"])
+
         rows = [
             ["Parameter", "Value"],
             ["Crystallite Size (Scherrer)", f"{a.crystallite_size_nm:.2f} nm"],
@@ -270,9 +335,9 @@ class ReportGenerator:
             ["Mean Peak Shift (Δ2θ)", f"{a.mean_peak_shift_deg:+.4f}°"],
             ["Strain Indicator", a.strain_indicator],
             ["Confidence Score", f"{a.confidence_score:.1f} %"],
-            ["Detected Phases", ", ".join(cleaned_phases) or "Single phase"],
+            ["Detected Phases", phases_para], # Passed the Paragraph object here
         ]
-        table = Table(rows, colWidths=[8 * cm, 8 * cm])
+        table = Table(rows, colWidths=[8 * cm, 8 * cm], repeatRows=0)
         table.setStyle(TableStyle([
             ("BACKGROUND",  (0, 0), (-1, 0), SUBHEAD_BG),
             ("TEXTCOLOR",   (0, 0), (-1, 0), TEXT_WHITE),
@@ -284,8 +349,10 @@ class ReportGenerator:
             ("LEFTPADDING", (0, 0), (-1, -1), 6),
             ("TOPPADDING",  (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING",(0,0), (-1, -1), 4),
+            ("VALIGN",      (0, 0), (-1, -1), "MIDDLE"),
         ]))
         return [
+            PageBreak(),
             Paragraph("Analysis Results", self._styles["SectionHead"]),
             Spacer(1, 0.2 * cm),
             table,
@@ -293,16 +360,20 @@ class ReportGenerator:
         ]
 
     def _build_crystal_info(self, a: CrystalAnalysis) -> list:
-        # UPGRADE: Explicit Polytype Row
+        # THE FIX: Wrap long text fields
+        compound_para = Paragraph(a.primary_compound or "—", self._styles["TableCell"])
+        polytype_para = Paragraph(getattr(a, "polytype", "—") or "—", self._styles["TableCell"])
+        formula_para = Paragraph(a.formula or "—", self._styles["TableCell"])
+
         rows = [
             ["Property", "Value"],
-            ["Compound Structure", a.primary_compound or "—"],
-            ["Polytype Designation", getattr(a, "polytype", "—") or "—"],
-            ["Chemical Formula", a.formula or "—"],
+            ["Compound Structure", compound_para],
+            ["Polytype Designation", polytype_para],
+            ["Chemical Formula", formula_para],
             ["Crystal System", a.crystal_system or "—"],
             ["Space Group", a.space_group or "—"],
         ]
-        table = Table(rows, colWidths=[8 * cm, 8 * cm])
+        table = Table(rows, colWidths=[8 * cm, 8 * cm], repeatRows=0)
         table.setStyle(TableStyle([
             ("BACKGROUND",  (0, 0), (-1, 0), SUBHEAD_BG),
             ("TEXTCOLOR",   (0, 0), (-1, 0), TEXT_WHITE),
@@ -314,6 +385,7 @@ class ReportGenerator:
             ("LEFTPADDING", (0, 0), (-1, -1), 6),
             ("TOPPADDING",  (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING",(0,0), (-1, -1), 4),
+            ("VALIGN",      (0, 0), (-1, -1), "MIDDLE"),
         ]))
         return [
             Paragraph("Crystal Information", self._styles["SectionHead"]),
@@ -333,4 +405,12 @@ class ReportGenerator:
         ))
         self._styles.add(ParagraphStyle(
             "FigCaption", parent=self._styles["Normal"], fontSize=9, textColor=colors.grey, spaceAfter=2, fontName="Helvetica-Oblique",
+        ))
+        
+        # THE FIX: wordWrap='CJK' forces ReportLab to wrap long continuous strings properly
+        self._styles.add(ParagraphStyle(
+            "TableCell", parent=self._styles["Normal"], fontSize=9, leading=11, wordWrap='CJK'
+        ))
+        self._styles.add(ParagraphStyle(
+            "TableCellSmallLeft", parent=self._styles["Normal"], fontSize=8, leading=10, alignment=0, wordWrap='CJK'
         ))
