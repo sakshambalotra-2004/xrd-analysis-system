@@ -1,9 +1,8 @@
 """
 services/peak_detector.py
 ==========================
-Advanced Peak Detection Service — Filters out minor statistical noise 
-and isolates diffraction peaks matching the 5% maximum intensity rule.
-Calculates FWHM for Scherrer crystallite sizing.
+Advanced Peak Detection Service — Adaptive detection for both 
+standard Powder XRD and High-Resolution HRXRD Rocking Curves.
 """
 
 import logging
@@ -16,7 +15,7 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 class PeakDetector:
-    """Isolates significant diffraction peaks from smoothed background matrix curves."""
+    """Isolates significant diffraction peaks with scan-type awareness."""
 
     def detect(self, df_smooth: pd.DataFrame) -> pd.DataFrame:
         if df_smooth.empty:
@@ -29,45 +28,52 @@ class PeakDetector:
         angles = df_smooth[angle_col].to_numpy()
         intensities = df_smooth[intensity_col].to_numpy()
 
-        # Find the absolute highest intensity value in this specific file
         global_max = float(np.max(intensities))
         if global_max <= 0:
             global_max = 1.0
 
-        # Safely retrieve configuration keys with fallback options
-        height_threshold_fraction = getattr(settings, "PEAK_HEIGHT_THRESHOLD", 0.05)
-        prominence_threshold_fraction = getattr(settings, "PEAK_PROMINENCE_FRACTION", getattr(settings, "PEAK_PROMINENCE", 0.05))
+        # ── ADAPTIVE SENSITIVITY LOGIC ───────────────────────────────────────
+        # HRXRD Rocking Curves are extremely narrow (<1° range).
+        # Standard Powder XRD scans are wide (>20° range).
+        scan_range = float(np.max(angles) - np.min(angles))
+        
+        if scan_range < 1.0:
+            # HRXRD Mode: Use ultra-low thresholds to capture sharp peaks
+            height_fraction = 0.005  # 0.5% threshold
+            prominence_fraction = 0.005
+            min_dist = 5 # Narrow distance for fine rocking curve peaks
+        else:
+            # Powder XRD Mode: Use standard 5% thresholds
+            height_fraction = getattr(settings, "PEAK_HEIGHT_THRESHOLD", 0.05)
+            prominence_fraction = getattr(settings, "PEAK_PROMINENCE_FRACTION", 0.05)
+            min_dist = settings.PEAK_MIN_DISTANCE
 
-        # Apply the 5% of max intensity rule
-        absolute_height_limit = global_max * height_threshold_fraction
-        absolute_prominence_limit = global_max * prominence_threshold_fraction
+        abs_height = global_max * height_fraction
+        abs_prominence = global_max * prominence_fraction
 
         logger.info(
-            "Running 5%% Peak Filtering: Global Max=%.1f, Cutoff Height=%.1f, Cutoff Prominence=%.1f",
-            global_max, absolute_height_limit, absolute_prominence_limit
+            "Detecting peaks | Range: %.2f° | Height Limit: %.2f | Prominence: %.2f",
+            scan_range, abs_height, abs_prominence
         )
 
-        # Execute Scipy peak detector using your exact 5% thresholds
+        # Execute Scipy peak detector
         peak_indices, properties = find_peaks(
             intensities,
-            height=absolute_height_limit,
-            prominence=absolute_prominence_limit,
-            distance=settings.PEAK_MIN_DISTANCE
+            height=abs_height,
+            prominence=abs_prominence,
+            distance=min_dist
         )
 
         if len(peak_indices) == 0:
-            logger.info("No peaks passed the 5% maximum intensity validation constraints.")
+            logger.info("No peaks passed validation constraints.")
             return pd.DataFrame(columns=["two_theta", "intensity", "fwhm_deg", "prominence"])
 
-        # ==========================================
-        # CALCULATE FWHM using scipy.signal.peak_widths
-        # ==========================================
-        # rel_height=0.5 measures the width exactly at the Half-Maximum point
+        # ── CALCULATE FWHM ──────────────────────────────────────────────────
+        # rel_height=0.5 measures width exactly at the Half-Maximum
         widths_results = peak_widths(intensities, peak_indices, rel_height=0.5)
         widths_in_points = widths_results[0]
-
-        # Convert step indexes back to physical degrees 2-Theta
-        # We use np.median to protect against slight floating point variances in the scan step size
+        
+        # Calculate step size with high precision
         step_size = float(np.median(np.diff(angles)))
         fwhm_degrees = widths_in_points * step_size
 
@@ -77,14 +83,14 @@ class PeakDetector:
             detected_peaks_list.append({
                 "two_theta": float(angles[idx]),
                 "intensity": float(intensities[idx]),
-                "fwhm_deg": float(fwhm_degrees[i]), # Passed to the Analyzer!
+                "fwhm_deg": float(fwhm_degrees[i]),
                 "prominence": float(properties["prominences"][i])
             })
 
         peaks_df = pd.DataFrame(detected_peaks_list)
         
-        # Sort rows by intensity descending
+        # Sort by intensity descending
         peaks_df = peaks_df.sort_values(by="intensity", ascending=False).reset_index(drop=True)
         
-        logger.info("Successfully verified %d peaks crossing the 5%% threshold rule.", len(peaks_df))
+        logger.info("Detected %d peaks.", len(peaks_df))
         return peaks_df

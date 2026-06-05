@@ -16,7 +16,7 @@ export default function OverlayGraph({
   }, [intensity, matchedPeaks, hasMatches]);
 
   const sortedData = useMemo(() => {
-    return [...twoTheta].map((x, i) => ({ x, y: intensity[i] })).sort((a, b) => a.x - b.x);
+    return [...twoTheta].map((x, i) => ({ x: Number(x), y: Number(intensity[i]) })).sort((a, b) => a.x - b.x);
   }, [twoTheta, intensity]);
 
   const sortedX = sortedData.map((p) => p.x);
@@ -30,15 +30,15 @@ export default function OverlayGraph({
       mode: "lines",
       name: "Experimental Profile",
       line: { color: "#000000", width: 1.2 },
-      hovertemplate: "<b>Experimental Scan</b><br>2θ: %{x:.2f}°<br>Intensity: %{y:.1f}<extra></extra>",
+      // UPGRADED to 6 decimal precision
+      hovertemplate: "<b>Experimental</b><br>Angle: %{x:.6f}°<br>Intensity: %{y:.1f}<extra></extra>",
     }
   ];
 
-  // Only inject the reference standard trace if genuine crystalline peaks were matched
   if (hasMatches) {
     data.push({
-      x: matchedPeaks.map((p) => p.two_theta_std),
-      y: matchedPeaks.map((p) => p.intensity_std * scaleFactor),
+      x: matchedPeaks.map((p) => Number(p.two_theta_std)),
+      y: matchedPeaks.map((p) => Number(p.intensity_std) * scaleFactor),
       type: "scatter",
       mode: "markers+text",
       name: `Standard: ${compoundName}`,
@@ -46,7 +46,8 @@ export default function OverlayGraph({
       text: matchedPeaks.map((p) => `(${p.h} ${p.k} ${p.l})`),
       textposition: "top center",
       font: { family: "Arial, sans-serif", size: 10, color: "#dc2626" },
-      hovertemplate: "<b>Standard Reflection</b><br>2θ Standard: %{x:.2f}°<br>Miller Indices: %{text}<extra></extra>",
+      // UPGRADED to 6 decimal precision
+      hovertemplate: "<b>Standard</b><br>Angle: %{x:.6f}°<br>Indices: %{text}<extra></extra>",
     });
   }
 
@@ -54,7 +55,7 @@ export default function OverlayGraph({
     if (!hasMatches) return [];
     return matchedPeaks.map((p) => ({
       type: "line",
-      x0: p.two_theta_std, y0: 0, x1: p.two_theta_std, y1: p.intensity_std * scaleFactor,
+      x0: Number(p.two_theta_std), y0: 0, x1: Number(p.two_theta_std), y1: Number(p.intensity_std) * scaleFactor,
       line: { color: "#dc2626", width: 1.5, dash: "solid" },
     }));
   }, [matchedPeaks, scaleFactor, hasMatches]);
@@ -62,31 +63,35 @@ export default function OverlayGraph({
   const layout = {
     title: {
       text: hasMatches 
-        ? `Phase Identification Overlay Alignment — ${compoundName}` 
-        : "Amorphous Scan Profile (No Crystalline Match Discovered)",
-      font: { size: 14, family: "Arial, Helvetica, sans-serif", color: "#000000", weight: "bold" },
+        ? `Phase Identification Overlay — ${compoundName}` 
+        : "Amorphous Scan Profile",
+      font: { size: 14, family: "Arial, sans-serif", color: "#000000", weight: "bold" },
     },
     xaxis: {
-      title: { text: "2θ (degrees)", font: { size: 13, family: "Arial, sans-serif" } },
-      ticks: "inside", ticklen: 6, tickwidth: 1.2, showline: true, linecolor: "#000000", linewidth: 1.5, mirror: "all", showgrid: false, zeroline: false,
+      title: { text: "Angle (°)", font: { size: 13, family: "Arial, sans-serif" } },
+      ticks: "inside", ticklen: 6, tickwidth: 1.2, showline: true, linecolor: "#000000", linewidth: 1.5, mirror: "all",
     },
     yaxis: {
       title: { text: "Intensity (a.u.)", font: { size: 13, family: "Arial, sans-serif" } },
-      ticks: "inside", ticklen: 6, tickwidth: 1.2, showline: true, linecolor: "#000000", linewidth: 1.5, mirror: "all", showgrid: false, zeroline: false,
+      ticks: "inside", ticklen: 6, tickwidth: 1.2, showline: true, linecolor: "#000000", linewidth: 1.5, mirror: "all",
       range: [0, maxExpIntensity * 1.15],
     },
     shapes: lines,
-    hovermode: "closest",
-    legend: {
-      x: 0.95, y: 0.95, xanchor: "right", yanchor: "top", bgcolor: "#ffffff", bordercolor: "#000000", borderwidth: 1,
-    },
+    hovermode: "x unified", // Changed to 'x unified' to show both traces on hover
+    legend: { x: 0.95, y: 0.95, xanchor: "right", yanchor: "top", bgcolor: "#ffffff", bordercolor: "#000000", borderwidth: 1 },
     margin: { t: 55, b: 55, l: 65, r: 35 },
     plot_bgcolor: "#ffffff", paper_bgcolor: "#ffffff",
   };
 
   return (
     <div className="origin-plotly-wrapper" style={{ border: "1px solid #e5e7eb", borderRadius: "6px", padding: "10px", backgroundColor: "#ffffff" }}>
-      <Plot data={data} layout={layout} useResizeHandler style={{ width: "100%", height: "460px" }} config={{ responsive: true, displaylogo: false, scrollZoom: true }} />
+      <Plot 
+        data={data} 
+        layout={layout} 
+        useResizeHandler 
+        style={{ width: "100%", height: "460px" }} 
+        config={{ responsive: true, displaylogo: false, scrollZoom: true }} 
+      />
     </div>
   );
 }

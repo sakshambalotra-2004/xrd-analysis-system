@@ -18,17 +18,17 @@ import OverlayGraph from "../components/OverlayGraph";
  */
 function polytypeToken(polytype = "") {
   const p = polytype.toLowerCase();
-  if (p.includes("3c") || p.includes("cubic"))                                   return "cubic";
+  if (p.includes("3c") || p.includes("cubic")) return "cubic";
   if (p.includes("6h") || p.includes("4h") || p.includes("2h") || p.includes("hexagonal")) return "hexagonal";
-  if (p.includes("15r") || p.includes("3r") || p.includes("rhombohedral"))       return "rhombohedral";
+  if (p.includes("15r") || p.includes("3r") || p.includes("rhombohedral")) return "rhombohedral";
   return "default";
 }
 
 const TOKEN_STYLES = {
-  cubic:        { bg: "#eff6ff", text: "#1e40af", border: "#bfdbfe", dot: "#3b82f6" },
-  hexagonal:    { bg: "#f0fdf4", text: "#166534", border: "#bbf7d0", dot: "#22c55e" },
+  cubic: { bg: "#eff6ff", text: "#1e40af", border: "#bfdbfe", dot: "#3b82f6" },
+  hexagonal: { bg: "#f0fdf4", text: "#166534", border: "#bbf7d0", dot: "#22c55e" },
   rhombohedral: { bg: "#f5f3ff", text: "#5b21b6", border: "#ddd6fe", dot: "#8b5cf6" },
-  default:      { bg: "#f3f4f6", text: "#374151", border: "#e5e7eb", dot: "#9ca3af" },
+  default: { bg: "#f3f4f6", text: "#374151", border: "#e5e7eb", dot: "#9ca3af" },
 };
 
 /**
@@ -42,7 +42,7 @@ function derivePhaseList(matchedPeaks = [], detectedPhasesRaw = "", fallbackPoly
     matchedPeaks.forEach((pk) => {
       const name = pk.phase_name || "Unknown Phase";
       const poly = pk.polytype || "";
-      const key  = `${name}||${poly}`;
+      const key = `${name}||${poly}`;
       if (!seen.has(key)) seen.set(key, { phaseName: name, polytype: poly });
     });
     return Array.from(seen.values());
@@ -73,9 +73,9 @@ function PeakAlignmentMap({ peaks = [] }) {
   // Group by "phase_name (polytype)" so different polytypes of the same compound
   // get separate cards rather than being merged under one vague heading.
   const groupedByPolytype = peaks.reduce((groups, peak) => {
-    const poly   = peak.polytype  || "";
-    const name   = peak.phase_name || "Unknown Phase";
-    const label  = poly ? `${name}  —  ${poly}` : name;
+    const poly = peak.polytype || "";
+    const name = peak.phase_name || "Unknown Phase";
+    const label = poly ? `${name}  —  ${poly}` : name;
     if (!groups[label]) groups[label] = { polytype: poly, phaseName: name, peaks: [] };
     groups[label].peaks.push(peak);
     return groups;
@@ -84,7 +84,7 @@ function PeakAlignmentMap({ peaks = [] }) {
   return (
     <div style={{ fontFamily: "Inter, sans-serif", marginTop: "20px" }}>
       {Object.entries(groupedByPolytype).map(([label, group]) => {
-        const token  = polytypeToken(group.polytype);
+        const token = polytypeToken(group.polytype);
         const colors = TOKEN_STYLES[token];
 
         return (
@@ -176,11 +176,11 @@ function PeakAlignmentMap({ peaks = [] }) {
               </div>
 
               {group.peaks.map((peak, idx) => {
-                const exp2Theta = Number(peak.two_theta_exp || 0).toFixed(3);
-                const std2Theta = Number(peak.two_theta_std || 0).toFixed(3);
-                const delta     = Number(peak.delta_two_theta || 0);
-                const sign      = delta > 0 ? "+" : "";
-                const tight     = Math.abs(delta) <= 0.04;
+                const exp2Theta = Number(peak.two_theta_exp || 0).toFixed(6); // Changed to 6 decimals
+                const std2Theta = Number(peak.two_theta_std || 0).toFixed(6); // Changed to 6 decimals
+                const delta = Number(peak.delta_two_theta || 0);
+                const sign = delta > 0 ? "+" : "";
+                const tight = Math.abs(delta) <= 0.04;
 
                 return (
                   <div
@@ -230,7 +230,7 @@ function PeakAlignmentMap({ peaks = [] }) {
                           display: "inline-block"
                         }}
                       >
-                        Δ2θ: {sign}{delta.toFixed(4)}°
+                        Δ2θ: {sign}{delta.toFixed(6)}° {/* Changed to 6 decimals */}
                       </div>
                       <div style={{ color: "#d1d5db", fontSize: "13px", marginTop: "2px" }}>
                         ──────►
@@ -289,12 +289,12 @@ function PeakAlignmentMap({ peaks = [] }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ResultsPage() {
-  const { fileId }  = useParams();
-  const navigate    = useNavigate();
+  const { fileId } = useParams();
+  const navigate = useNavigate();
 
   // Local UI states
   const [graphViewMode, setGraphViewMode] = useState("interactive");
-  const [imageError, setImageError]   = useState(false);
+  const [imageError, setImageError] = useState(false);
 
   // React Query handles the data fetching, caching, and loading state automatically
   const { data: result, isLoading, isError } = useQuery({
@@ -314,7 +314,7 @@ export default function ResultsPage() {
   });
 
   if (isLoading) return <div className="page-loader">Loading results…</div>;
-  if (isError || !result)  return <div className="page-error">Results not found for file ID: {fileId}</div>;
+  if (isError || !result) return <div className="page-error">Results not found for file ID: {fileId}</div>;
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const matchedPeaks = result.matched_peaks || [];
@@ -427,14 +427,14 @@ export default function ResultsPage() {
               </div>
             ) : (
               phaseList.map(({ phaseName, polytype }, idx) => {
-                const token  = polytypeToken(polytype);
+                const token = polytypeToken(polytype);
                 const colors = TOKEN_STYLES[token];
 
                 // Count reflections belonging to this specific phase+polytype
                 const reflectionCount = matchedPeaks.filter(
                   (pk) =>
                     (pk.phase_name || "") === phaseName &&
-                    (pk.polytype    || "") === polytype
+                    (pk.polytype || "") === polytype
                 ).length;
 
                 return (
@@ -529,15 +529,15 @@ export default function ResultsPage() {
       </div>
 
       {/* ── Experimental XRD pattern ────────────────────────────────────────── */}
-      <div className="card chart-card" style={{ marginTop: "20px" }}>
-        <h3>Experimental XRD Pattern</h3>
-        <XRDGraph
-          title="Continuous Experimental Reflection Scan (Origin Style)"
-          twoTheta={result.full_two_theta || []}
-          intensity={result.full_intensity || []}
-          peakPositions={result.peaks ? result.peaks.map((p) => p.two_theta) : []}
-        />
-      </div>
+<div className="card chart-card" style={{ marginTop: "20px" }}>
+  <h3>Experimental XRD Pattern</h3>
+  <XRDGraph
+    twoTheta={result.full_two_theta}      // Changed 'data' to 'result'
+    intensity={result.full_intensity}    // Changed 'data' to 'result'
+    peakPositions={result.peaks.map((p) => p.two_theta)}
+    peakIntensities={result.peaks.map((p) => p.intensity)} 
+  />
+</div>
 
       {/* ── Overlay comparison card ─────────────────────────────────────────── */}
       <div className="card" style={{ marginTop: "20px" }}>

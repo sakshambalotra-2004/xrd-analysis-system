@@ -5,21 +5,15 @@ CSV Reader Module — Stage 1 of the XRD analysis pipeline.
 
 Responsibilities:
   - Accept a file path or raw bytes of an uploaded CSV
-  - Validate column presence and data types
+  - Extract instrument metadata (Scan Axis, Fixed Angles) for HRXRD/Omega Scans
+  - Validate column presence and data types (maintaining 6-decimal precision)
   - Normalise column names (strip whitespace, lowercase)
   - Handle PANalytical XPERT-PRO exports with metadata header blocks
   - Return a clean pandas DataFrame ready for noise filtering
 
 Expected CSV columns (case-insensitive, flexible naming):
-  - Two-theta angle  : "2theta", "2theta (°)", "angle", "°2theta"
-  - Intensity        : "intensity", "counts", "i"
-
-Usage:
-    from services.csv_reader import CSVReader
-
-    reader = CSVReader()
-    df = reader.load("/uploads/csv/sample.csv")
-    # df.columns → ["two_theta", "intensity"]
+  - Two-theta / Omega angle : "2theta", "angle", "two_theta", "omega"
+  - Intensity               : "intensity", "counts", "i"
 """
 
 import io
@@ -31,8 +25,9 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Column name aliases accepted as 2θ input
-TWO_THETA_ALIASES = {"2theta", "2theta (°)", "angle", "°2theta", "two_theta", "2th"}
+# Column name aliases accepted as the primary X-axis input
+# UPGRADE: Added "omega" and "rel_angle" to support Rocking Curves
+TWO_THETA_ALIASES = {"2theta", "2theta (°)", "angle", "°2theta", "two_theta", "2th", "omega", "rel_angle"}
 
 # Column name aliases accepted as intensity input
 INTENSITY_ALIASES = {"intensity", "counts", "i", "int", "cps", "intensity (a.u.)"}
@@ -49,26 +44,54 @@ class CSVReader:
     # Public API
     # ------------------------------------------------------------------
 
+    def extract_metadata(self, content_or_path: str | Path | bytes) -> dict:
+        """
+        Extract PANalytical instrument metadata headers before parsing the data.
+        This is crucial for identifying High-Resolution Rocking Curves (Omega Scans).
+        """
+        metadata = {
+            "scan_axis": "2Theta", # Default to standard powder XRD
+            "fixed_2theta": None, 
+            "fixed_omega": None
+        }
+        lines = []
+
+        try:
+            if isinstance(content_or_path, bytes):
+                text = content_or_path.decode("utf-8", errors="replace")
+                lines = text.splitlines()[:60]
+            else:
+                with open(content_or_path, "r", encoding="utf-8", errors="replace") as f:
+                    lines = [f.readline().strip() for _ in range(60)]
+
+            for line in lines:
+                clean_line = line.strip()
+                
+                # Check for Omega Scan Type
+                if "Scan axis,Omega" in clean_line or "Scan axis, Omega" in clean_line:
+                    metadata["scan_axis"] = "Omega"
+                
+                # Check for fixed angles during the scan
+                elif clean_line.startswith("2Theta,"):
+                    parts = clean_line.split(",")
+                    if len(parts) >= 2:
+                        metadata["fixed_2theta"] = float(parts[1].strip())
+                elif clean_line.startswith("Omega,"):
+                    parts = clean_line.split(",")
+                    if len(parts) >= 2:
+                        metadata["fixed_omega"] = float(parts[1].strip())
+                
+                # Stop parsing metadata once we hit the data block
+                if "[Scan points]" in clean_line or "[Data]" in clean_line:
+                    break
+        except Exception as e:
+            logger.warning("Failed to extract metadata: %s", e)
+
+        return metadata
+
     def load(self, filepath: str | Path) -> pd.DataFrame:
         """
         Read an XRD CSV file and return a clean DataFrame.
-
-        Parameters
-        ----------
-        filepath : str | Path
-            Absolute or relative path to the .csv file.
-
-        Returns
-        -------
-        pd.DataFrame
-            Columns: ['two_theta', 'intensity'] — both float64, sorted by
-            two_theta ascending, with NaN rows dropped.
-
-        Raises
-        ------
-        CSVReadError
-            If the file cannot be read, required columns are missing, or
-            fewer than 5 valid data rows remain after cleaning.
         """
         filepath = Path(filepath)
         logger.info("Loading CSV from path: %s", filepath)
@@ -79,7 +102,7 @@ class CSVReader:
         self._validate(df)
 
         logger.info(
-            "CSV loaded successfully — %d rows, 2θ range %.3f°–%.3f°",
+            "CSV loaded successfully — %d rows, X-Axis range %.6f°–%.6f°",
             len(df),
             df["two_theta"].min(),
             df["two_theta"].max(),
@@ -89,18 +112,6 @@ class CSVReader:
     def load_bytes(self, content: bytes, filename: str = "upload.csv") -> pd.DataFrame:
         """
         Parse CSV from raw bytes (e.g. from an HTTP upload).
-
-        Parameters
-        ----------
-        content : bytes
-            Raw file bytes.
-        filename : str
-            Original filename, used only for logging.
-
-        Returns
-        -------
-        pd.DataFrame
-            Same contract as :meth:`load`.
         """
         logger.info("Parsing CSV bytes for file: %s", filename)
 
@@ -284,13 +295,13 @@ class CSVReader:
             )
             col_lower = str(col).strip().lower()
             if normalised in TWO_THETA_ALIASES or col_lower in TWO_THETA_ALIASES:
-                mapping[col] = "two_theta"
+                mapping[col] = "two_theta" # Maps Omega or Angle to "two_theta" for internal consistency
             elif normalised in INTENSITY_ALIASES or col_lower in INTENSITY_ALIASES:
                 mapping[col] = "intensity"
 
         if "two_theta" not in mapping.values():
             raise CSVReadError(
-                f"No 2θ column found. Expected one of: {sorted(TWO_THETA_ALIASES)}. "
+                f"No Angle/2θ column found. Expected one of: {sorted(TWO_THETA_ALIASES)}. "
                 f"Got: {list(df.columns)}"
             )
         if "intensity" not in mapping.values():
@@ -303,14 +314,20 @@ class CSVReader:
         return df
 
     def _clean(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Coerce types, drop NaN/negative rows, sort by 2θ."""
+        """Coerce types, drop NaN/negative rows, sort by Angle."""
         df = df.copy()
         df["two_theta"] = pd.to_numeric(df["two_theta"], errors="coerce")
         df["intensity"] = pd.to_numeric(df["intensity"], errors="coerce")
         df = df.dropna(subset=["two_theta", "intensity"])
         df = df[df["intensity"] >= 0]            # Drop unphysical negative counts
-        df = df[df["two_theta"].between(0, 180)]  # Physical 2θ range
+        
+        # UPGRADE: Expanded physical range from (0, 180) to (-360, 360) 
+        # Omega Scans can frequently go negative or hover near 0.
+        df = df[df["two_theta"].between(-360, 360)] 
+        
         df = df.sort_values("two_theta").reset_index(drop=True)
+        
+        # np.float64 inherently preserves 15+ digits of decimal precision
         df["intensity"] = df["intensity"].astype(np.float64)
         df["two_theta"] = df["two_theta"].astype(np.float64)
         return df
@@ -337,8 +354,14 @@ if __name__ == "__main__":
         sys.exit(1)
 
     reader = CSVReader()
+    
+    # Test Metadata extraction
+    meta = reader.extract_metadata(path)
+    print(f"Scan Metadata: {meta}")
+    
+    # Test load
     result = reader.load(path)
     print(result.head(10).to_string(index=False))
     print(f"\nTotal points : {len(result)}")
-    print(f"2θ range     : {result['two_theta'].min():.4f}° – {result['two_theta'].max():.4f}°")
+    print(f"Angle range  : {result['two_theta'].min():.6f}° – {result['two_theta'].max():.6f}°")
     print(f"Max intensity: {result['intensity'].max():.1f}")
