@@ -1,9 +1,11 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
 
+// Added the Compare route to the navigation array
 const NAV_ITEMS = [
   { to: "/dashboard", icon: "🏠", label: "Dashboard" },
   { to: "/upload",    icon: "⬆️", label: "Upload CSV" },
+  { to: "/compare",   icon: "📊", label: "Compare" },
   { to: "/reports",   icon: "📄", label: "Reports" },
 ];
 

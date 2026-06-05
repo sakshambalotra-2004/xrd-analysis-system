@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function PeakTable({ peaks = [], rawPeaks = [] }) { // Added rawPeaks here
+export default function PeakTable({ peaks = [], rawPeaks = [] }) { 
   
   const getPhaseBadgeStyle = (phaseName = "", polytype = "") => {
     const nameLower = phaseName.toLowerCase();
@@ -32,9 +32,11 @@ export default function PeakTable({ peaks = [], rawPeaks = [] }) { // Added rawP
           <tr style={{ backgroundColor: "#f9fafb", borderBottom: "2px solid #e5e7eb" }}>
             <th style={{ padding: "12px 16px", color: "#374151", fontWeight: "600" }}>Assigned Phase</th>
             <th style={{ padding: "12px 16px", color: "#374151", fontWeight: "600" }}>2θ Exp (°)</th>
+            <th style={{ padding: "12px 16px", color: "#374151", fontWeight: "600" }}>2θ Std (°)</th>
             <th style={{ padding: "12px 16px", color: "#374151", fontWeight: "600" }}>FWHM (°)</th>
             <th style={{ padding: "12px 16px", color: "#374151", fontWeight: "600" }}>Δ2θ (°)</th>
             <th style={{ padding: "12px 16px", color: "#374151", fontWeight: "600" }}>d-spacing (Å)</th>
+            <th style={{ padding: "12px 16px", color: "#374151", fontWeight: "600" }}>I Std (%)</th>
             <th style={{ padding: "12px 16px", color: "#374151", fontWeight: "600" }}>(h k l)</th>
           </tr>
         </thead>
@@ -58,6 +60,10 @@ export default function PeakTable({ peaks = [], rawPeaks = [] }) { // Added rawP
                 <td style={{ padding: "12px 16px", fontWeight: "500", color: "#111827" }}>
                   {Number(peak.two_theta_exp).toFixed(4)}
                 </td>
+
+                <td style={{ padding: "12px 16px", color: "#4b5563" }}>
+                  {peak.two_theta_std != null ? Number(peak.two_theta_std).toFixed(4) : "—"}
+                </td>
                 
                 {/* Dynamically render the FWHM value! */}
                 <td style={{ padding: "12px 16px", color: "#4f46e5", fontWeight: "700" }}>
@@ -70,6 +76,10 @@ export default function PeakTable({ peaks = [], rawPeaks = [] }) { // Added rawP
                 
                 <td style={{ padding: "12px 16px", color: "#4b5563", fontFamily: "Courier, monospace" }}>
                   {Number(peak.d_spacing).toFixed(4)}
+                </td>
+
+                <td style={{ padding: "12px 16px", color: "#4b5563" }}>
+                  {peak.intensity_std != null ? Number(peak.intensity_std).toFixed(1) : "—"}
                 </td>
                 
                 <td style={{ padding: "12px 16px", color: "#4b5563", fontWeight: "700" }}>

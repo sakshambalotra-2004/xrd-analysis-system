@@ -160,14 +160,19 @@ class ReportGenerator:
         ]
 
     def _build_summary(self, a: CrystalAnalysis) -> list:
-        cleaned_phases = self._get_descriptive_phases(a.detected_phases)
+        cleaned_phases = self._get_descriptive_phases(getattr(a, "detected_phases", []))
+        
+        # UPGRADE: Extract Polytype cleanly for the summary
+        polytype_val = getattr(a, "polytype", "")
+        compound_display = f"{a.primary_compound} ({polytype_val})" if polytype_val and a.primary_compound else (a.primary_compound or "—")
+
         data = [
-            ["Compound Identified", a.primary_compound or "—"],
+            ["Compound Identified", compound_display],
             ["Chemical Formula",    a.formula or "—"],
             ["Crystal System",      a.crystal_system or "—"],
             ["Space Group",         a.space_group or "—"],
             ["Confidence Score",    f"{a.confidence_score:.1f} %"],
-            ["Crystallite Size",    f"{a.crystallite_size_nm:.1f} nm  ({a.crystallite_size_angstrom:.1f} Å)"],
+            ["Crystallite Size",    f"{a.crystallite_size_nm:.1f} nm  ({getattr(a, 'crystallite_size_angstrom', a.crystallite_size_nm * 10):.1f} Å)"],
             ["Mean Peak Shift",     f"{a.mean_peak_shift_deg:+.4f}°"],
             ["Strain Indicator",    a.strain_indicator],
             ["Detected Phases",     ", ".join(cleaned_phases) or "—"],
@@ -209,7 +214,7 @@ class ReportGenerator:
         return story
 
     def _build_peak_table(self, match: MatchResult) -> list:
-        # UPGRADE: Integrated a dedicated Phase column to house polytype labels elegantly
+        # Integrated a dedicated Phase column to house polytype labels elegantly
         header = ["Phase/Polytype", "2θ exp (°)", "2θ std (°)", "Δ2θ (°)", "d (Å)", "I(rel.)", "h k l", "Match"]
         rows = [header]
         
@@ -257,11 +262,11 @@ class ReportGenerator:
         ]
 
     def _build_analysis(self, a: CrystalAnalysis) -> list:
-        cleaned_phases = self._get_descriptive_phases(a.detected_phases)
+        cleaned_phases = self._get_descriptive_phases(getattr(a, "detected_phases", []))
         rows = [
             ["Parameter", "Value"],
             ["Crystallite Size (Scherrer)", f"{a.crystallite_size_nm:.2f} nm"],
-            ["Crystallite Size (Ångströms)", f"{a.crystallite_size_angstrom:.2f} Å"],
+            ["Crystallite Size (Ångströms)", f"{getattr(a, 'crystallite_size_angstrom', a.crystallite_size_nm * 10):.2f} Å"],
             ["Mean Peak Shift (Δ2θ)", f"{a.mean_peak_shift_deg:+.4f}°"],
             ["Strain Indicator", a.strain_indicator],
             ["Confidence Score", f"{a.confidence_score:.1f} %"],
@@ -288,9 +293,11 @@ class ReportGenerator:
         ]
 
     def _build_crystal_info(self, a: CrystalAnalysis) -> list:
+        # UPGRADE: Explicit Polytype Row
         rows = [
             ["Property", "Value"],
             ["Compound Structure", a.primary_compound or "—"],
+            ["Polytype Designation", getattr(a, "polytype", "—") or "—"],
             ["Chemical Formula", a.formula or "—"],
             ["Crystal System", a.crystal_system or "—"],
             ["Space Group", a.space_group or "—"],

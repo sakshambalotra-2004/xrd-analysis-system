@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-import Navbar from "./components/Navbar";
+import Navbar from "./components/Navbar";import ComparisonPage from "./pages/ComparisonPage";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./pages/Dashboard";
 import UploadPage from "./pages/UploadPage";
@@ -30,6 +30,7 @@ export default function App() {
         <main className="page-content">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/compare" element={<ComparisonPage />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/results/:fileId" element={<ResultsPage />} />
