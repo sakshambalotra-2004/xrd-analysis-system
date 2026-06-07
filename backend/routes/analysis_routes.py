@@ -87,6 +87,7 @@ class AnalysisResponse(BaseModel):
     origin_project: str
     full_two_theta: list[float]
     full_intensity: list[float]
+    full_intensity_raw: list[float]  # FIX: unsmoothed intensity for accurate chart display
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +99,8 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
     logger.info("Starting analysis pipeline execution for file_id=%s", file_id)
 
     # Core mathematical processing stages
-    df = csv_reader.load(file_path)
-    df_smooth = noise_filter.filter(df)
+    df = csv_reader.load(file_path)          # raw — used for chart display
+    df_smooth = noise_filter.filter(df)      # smoothed — used for peak detection only
     peaks_df = peak_detector.detect(df_smooth)
     
     candidates = peak_matcher.match(peaks_df)
@@ -207,6 +208,10 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
     angle_col = 'two_theta' if 'two_theta' in df_smooth.columns else ('Angle' if 'Angle' in df_smooth.columns else df_smooth.columns[0])
     intensity_col = 'intensity' if 'intensity' in df_smooth.columns else ('Intensity' if 'Intensity' in df_smooth.columns else df_smooth.columns[1])
 
+    # FIX: resolve raw column names from original df (may differ from smoothed)
+    raw_angle_col = 'two_theta' if 'two_theta' in df.columns else ('Angle' if 'Angle' in df.columns else df.columns[0])
+    raw_intensity_col = 'intensity' if 'intensity' in df.columns else ('Intensity' if 'Intensity' in df.columns else df.columns[1])
+
     return AnalysisResponse(
         file_id=file_id,
         status="done",
@@ -229,6 +234,7 @@ def _run_pipeline(file_id: str, file_path: str) -> AnalysisResponse:
         origin_project=str(opju_path),
         full_two_theta=df_smooth[angle_col].astype(float).tolist(),
         full_intensity=df_smooth[intensity_col].astype(float).tolist(),
+        full_intensity_raw=df[raw_intensity_col].astype(float).tolist(),  # FIX: unsmoothed
     )
 
 
@@ -310,14 +316,17 @@ async def get_analysis(file_id: str):
     origin_project_status = str(opju_file_path) if opju_file_path.exists() else ""
 
     record = file_handler.get_upload_record(file_id)
-    x_pts, y_pts = [], []
+    x_pts, y_pts, y_pts_raw = [], [], []
     if record and Path(record["file_path"]).exists():
         try:
-            df_smooth = noise_filter.filter(csv_reader.load(record["file_path"]))
+            df_raw = csv_reader.load(record["file_path"])
+            df_smooth = noise_filter.filter(df_raw)
             angle_col = 'two_theta' if 'two_theta' in df_smooth.columns else ('Angle' if 'Angle' in df_smooth.columns else df_smooth.columns[0])
             intensity_col = 'intensity' if 'intensity' in df_smooth.columns else ('Intensity' if 'Intensity' in df_smooth.columns else df_smooth.columns[1])
+            raw_intensity_col = 'intensity' if 'intensity' in df_raw.columns else ('Intensity' if 'Intensity' in df_raw.columns else df_raw.columns[1])
             x_pts = df_smooth[angle_col].astype(float).tolist()
             y_pts = df_smooth[intensity_col].astype(float).tolist()
+            y_pts_raw = df_raw[raw_intensity_col].astype(float).tolist()  # FIX
         except:
             pass
 
@@ -343,6 +352,7 @@ async def get_analysis(file_id: str):
         origin_project=origin_project_status,
         full_two_theta=x_pts,
         full_intensity=y_pts,
+        full_intensity_raw=y_pts_raw,  # FIX: unsmoothed for chart display
     )
 
 

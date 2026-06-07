@@ -332,6 +332,17 @@ export default function ResultsPage() {
 
   const isMultiPhase = phaseList.length > 1;
 
+  // ── Safe Y-axis ceiling ───────────────────────────────────────────────────
+  // Prefer raw (unsmoothed) intensity; fall back to smoothed if raw isn't
+  // available yet (e.g. older cached result before backend was redeployed).
+  // Guard against empty arrays — Math.max(...[]) returns -Infinity.
+  const _rawArr  = Array.isArray(result.full_intensity_raw)  && result.full_intensity_raw.length  > 0 ? result.full_intensity_raw  : null;
+  const _smArr   = Array.isArray(result.full_intensity)      && result.full_intensity.length      > 0 ? result.full_intensity      : null;
+  const _bestArr = _rawArr ?? _smArr ?? [0];
+  const yMaxXRD     = Math.max(..._bestArr) * 1.08;
+  const yMaxOverlay = Math.max(..._bestArr) * 1.15;
+  console.log("[YAxis] raw_len:", _rawArr?.length, "smoothed_len:", _smArr?.length, "ceiling:", yMaxXRD);
+
   return (
     <div className="page results-page">
 
@@ -532,10 +543,11 @@ export default function ResultsPage() {
 <div className="card chart-card" style={{ marginTop: "20px" }}>
   <h3>Experimental XRD Pattern</h3>
   <XRDGraph
-    twoTheta={result.full_two_theta}      // Changed 'data' to 'result'
-    intensity={result.full_intensity}    // Changed 'data' to 'result'
+    twoTheta={result.full_two_theta}
+    intensity={_bestArr}
     peakPositions={result.peaks.map((p) => p.two_theta)}
-    peakIntensities={result.peaks.map((p) => p.intensity)} 
+    peakIntensities={result.peaks.map((p) => p.intensity)}
+    yMax={yMaxXRD}
   />
 </div>
 
@@ -617,9 +629,10 @@ export default function ResultsPage() {
             )}
             <OverlayGraph
               twoTheta={result.full_two_theta || []}
-              intensity={result.full_intensity || []}
+              intensity={_bestArr}
               matchedPeaks={matchedPeaks}
               compoundName={result.compound_name || "Standard"}
+              yMax={yMaxOverlay}
             />
           </div>
         ) : (

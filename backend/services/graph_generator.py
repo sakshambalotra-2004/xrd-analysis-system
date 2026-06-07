@@ -81,7 +81,8 @@ class GraphGenerator:
         Parameters
         ----------
         df : pd.DataFrame
-            Smoothed XRD data (two_theta, intensity).
+            Smoothed XRD data.  Column names may be 'two_theta'/'intensity'
+            (noise_filter output) or 'Angle'/'Intensity' (raw CSV).
         peaks_df : pd.DataFrame
             Detected peaks (two_theta, intensity).
         best_match : MatchResult | None
@@ -94,6 +95,21 @@ class GraphGenerator:
         GraphPaths
             Absolute paths to the saved PNG files.
         """
+        # FIX: resolve column names before passing to plot helpers so the
+        # generator never crashes on CSVs that use 'Angle'/'Intensity' headers.
+        angle_col = (
+            "two_theta" if "two_theta" in df.columns
+            else "Angle" if "Angle" in df.columns
+            else df.columns[0]
+        )
+        intensity_col = (
+            "intensity" if "intensity" in df.columns
+            else "Intensity" if "Intensity" in df.columns
+            else df.columns[1]
+        )
+        # Normalise to standard names for all downstream plot helpers
+        df = df.rename(columns={angle_col: "two_theta", intensity_col: "intensity"})
+
         paths = GraphPaths()
         paths.experimental = self._plot_experimental(df, peaks_df, file_id)
         if best_match:
@@ -173,8 +189,14 @@ class GraphGenerator:
         ax.plot(df["two_theta"], df["intensity"],
                 color=EXPERIMENTAL_COLOR, linewidth=1.2, label="Experimental")
 
-        # Standard — vertical markers scaled to experimental maximum
-        exp_max = df["intensity"].max()
+        # FIX: scale standard peaks against the true (raw) intensity maximum so
+        # the stem heights are not under-scaled when the smoothed signal was
+        # attenuated by the noise filter.
+        if "raw_intensity" in df.columns:
+            exp_max = df["raw_intensity"].max()
+        else:
+            exp_max = df["intensity"].max()
+
         std_peaks = match.matched_peaks
         if std_peaks:
             std_max = max(mp.intensity_std for mp in std_peaks) or 1
@@ -185,7 +207,6 @@ class GraphGenerator:
                     mp.two_theta_std, 0, height,
                     colors=STANDARD_COLOR, linewidth=1.8, alpha=0.8,
                 )
-            # Dummy entry for legend
             ax.vlines([], [], [], colors=STANDARD_COLOR, linewidth=1.8,
                       label=f"Standard ({match.formula})")
 

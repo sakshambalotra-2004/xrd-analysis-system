@@ -26,6 +26,7 @@ from typing import Sequence
 
 import numpy as np
 
+from config import settings
 from services.peak_matcher import MatchResult, MatchedPeak
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,9 @@ class SimilarityEngine:
             if mp.d_spacing == 0:
                 continue
             # Recalculate experimental d from 2θ_exp using Bragg's Law
-            lam = 1.5406  # Cu Kα Å
+            # FIX: use settings.WAVELENGTH_ANGSTROM instead of hardcoded 1.5406
+            # so the score is consistent when a non-Cu-Kα source is configured.
+            lam = settings.WAVELENGTH_ANGSTROM
             theta_exp = math.radians(mp.two_theta_exp / 2.0)
             d_exp = lam / (2.0 * math.sin(theta_exp)) if math.sin(theta_exp) > 0 else 0
             delta_d = abs(d_exp - mp.d_spacing)

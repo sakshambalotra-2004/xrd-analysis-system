@@ -153,11 +153,23 @@ class PeakMatcher:
         std_peaks = std.get("peaks", [])
         matched: list[MatchedPeak] = []
         matched_std_angles = set()
+        matched_exp_indices = set()  # FIX: prevent one exp peak matching multiple std peaks
 
         for sp in std_peaks:
             std_angle = float(sp["two_theta"])
             deltas = np.abs(exp_angles - std_angle)
             closest_idx = int(np.argmin(deltas))
+
+            # FIX: skip if this experimental peak was already consumed by a closer std peak
+            if closest_idx in matched_exp_indices:
+                # Try the next-closest that hasn't been used yet
+                sorted_idxs = np.argsort(deltas)
+                closest_idx = next(
+                    (i for i in sorted_idxs if i not in matched_exp_indices),
+                    None,
+                )
+                if closest_idx is None:
+                    continue
 
             if deltas[closest_idx] <= self.tolerance:
                 matched.append(MatchedPeak(
@@ -171,9 +183,10 @@ class PeakMatcher:
                     k=int(sp.get("k", 0)),
                     l=int(sp.get("l", 0)),
                     phase_name=compound_name,
-                    polytype=polytype # UPGRADE: Attach polytype to this specific reflection
+                    polytype=polytype,
                 ))
                 matched_std_angles.add(std_angle)
+                matched_exp_indices.add(closest_idx)  # FIX: mark as consumed
 
         n_std = len(std_peaks)
         n_matched = len(matched_std_angles)

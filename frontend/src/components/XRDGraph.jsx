@@ -7,6 +7,7 @@ export default function XRDGraph({
   peakPositions = [],
   title = "Experimental XRD Pattern",
   xAxisLabel = "Angle (°)",
+  yMax = null,   // FIX: explicit ceiling passed from ResultsPage to prevent axis clipping
 }) {
   
   // 100% Bulletproof Intensity Mapper
@@ -105,6 +106,11 @@ const lockedPeakIntensities = useMemo(() => {
       gridcolor: "#e5e7eb",
       zeroline: false,
       tickfont: { size: 12 },
+      // FIX: pin Y ceiling to the true data max so zoom never clips the axis
+      ...(yMax != null
+        ? { range: [0, yMax], autorange: false }
+        : { autorange: true }
+      ),
     },
     hovermode: "x unified",
     legend: {

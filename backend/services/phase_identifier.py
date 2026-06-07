@@ -5,6 +5,17 @@ Phase Identification Module — Stage 6 of the XRD analysis pipeline.
 
 Determines the primary compound and detects secondary phases from the ranked
 list of MatchResult candidates. Uses an iterative residual matching strategy.
+
+FIX SUMMARY
+-----------
+1. Residual angle matching now uses a tolerance-based comparison (±0.01°)
+   instead of exact float set membership — prevents rounding differences between
+   matched_peaks.two_theta_exp and peaks_df.two_theta from mis-classifying
+   explained peaks as residual and generating spurious secondary phases.
+
+2. Duplicate-phase guard now includes polytype in the comparison key, so
+   different polytypes of the same compound (e.g. SiC 6H vs SiC 4H) are
+   correctly accepted as distinct secondary phases rather than being blocked.
 """
 
 import logging
@@ -18,8 +29,17 @@ from services.peak_matcher import MatchResult, PeakMatcher
 
 logger = logging.getLogger(__name__)
 
-# Minimum score a compound must achieve on the residual data to be accepted as a secondary phase
 SECONDARY_SCORE_THRESHOLD = 30.0
+
+# Tolerance for matching two_theta_exp values between matched_peaks and peaks_df
+# Must be tighter than the peak-matching tolerance (0.2°) but forgiving of
+# float rounding differences between pipeline stages.
+_ANGLE_TOLERANCE_DEG = 0.01
+
+
+def _is_explained(angle: float, explained: list[float], tol: float = _ANGLE_TOLERANCE_DEG) -> bool:
+    """Return True if *angle* is within *tol* of any angle in *explained*."""
+    return any(abs(angle - e) <= tol for e in explained)
 
 
 @dataclass
@@ -39,8 +59,8 @@ class PhaseIdentificationResult:
     @property
     def phase_formulas(self) -> list[str]:
         """
-        Returns a list of formulas annotated with their crystal systems 
-        to differentiate polymorphs (e.g., 'SiC (Cubic)', 'SiC (Hexagonal)').
+        Returns formulas annotated with crystal system to differentiate
+        polymorphs (e.g. 'SiC (Cubic)', 'SiC (Hexagonal)').
         """
         formulas = []
         for p in self.all_phases:
@@ -104,8 +124,9 @@ class PhaseIdentifier:
         # Pass 1 — Extract the dominant Primary Phase
         result.primary = candidates[0]
         logger.info(
-            "Primary phase identified: %s (%.1f%%)",
+            "Primary phase identified: %s  polytype=%s  score=%.1f%%",
             result.primary.compound_name,
+            getattr(result.primary, "polytype", "?"),
             result.primary.similarity_score,
         )
 
@@ -113,50 +134,69 @@ class PhaseIdentifier:
             return result
 
         # Pass 2 — Isolate unexplained peaks to catch secondary/trace phases
-        explained_angles = {mp.two_theta_exp for mp in result.primary.matched_peaks}
-        all_angles = set(peaks_df["two_theta"].tolist())
-        residual_angles = all_angles - explained_angles
+        # FIX: use tolerance-based comparison instead of exact float set membership
+        # to avoid rounding differences between matched_peaks and peaks_df causing
+        # valid explained peaks to be misclassified as residual.
+        explained_angles = [mp.two_theta_exp for mp in result.primary.matched_peaks]
+        all_angles = peaks_df["two_theta"].tolist()
 
-        # If there are no remaining unmatched peaks, exit early
+        residual_angles = [
+            a for a in all_angles
+            if not _is_explained(a, explained_angles)
+        ]
+
         if not residual_angles:
             logger.info("All experimental peaks are fully explained by the primary phase.")
             return result
 
         logger.info(
-            "Found %d unexplained peak(s). Searching for secondary phases...",
+            "%d unexplained peak(s) after primary phase. Searching for secondary phases…",
             len(residual_angles),
         )
 
-        # Filter down the dataframe to only contain the residual peak data
         residual_df = peaks_df[peaks_df["two_theta"].isin(residual_angles)].copy()
 
-        # Run the matcher directly on the remaining peak dataset
         matcher = PeakMatcher()
         residual_candidates = matcher.match(residual_df, max_candidates=5)
 
         if not residual_candidates:
-            logger.info("No matching database standards found for the residual peaks.")
+            logger.info("No database standards matched the residual peaks.")
             return result
 
+        # FIX: duplicate key now includes polytype so that different polytypes of
+        # the same compound (6H vs 4H, cubic vs hexagonal SiC) are NOT blocked.
+        primary_key = (
+            result.primary.compound_name,
+            getattr(result.primary, "crystal_system", ""),
+            getattr(result.primary, "polytype", ""),
+        )
+
         for sub_candidate in residual_candidates:
-            # FIXED: Guard check now checks both name AND crystal system.
-            # This allows different polymorphs of Silicon Carbide (Cubic vs Hexagonal) to be added!
-            is_duplicate_of_primary = (
-                sub_candidate.compound_name == result.primary.compound_name and
-                getattr(sub_candidate, "crystal_system", "") == getattr(result.primary, "crystal_system", "")
+            candidate_key = (
+                sub_candidate.compound_name,
+                getattr(sub_candidate, "crystal_system", ""),
+                getattr(sub_candidate, "polytype", ""),
             )
-            
-            if is_duplicate_of_primary:
+
+            if candidate_key == primary_key:
+                logger.debug("Skipping duplicate of primary: %s", candidate_key)
                 continue
 
-            # Evaluate the confidence score based purely on the residual match quality
             if sub_candidate.similarity_score >= self.secondary_threshold:
                 result.secondary.append(sub_candidate)
                 logger.info(
-                    "Secondary phase detected: %s - %s (Residual Match Score: %.1f%%)",
+                    "Secondary phase accepted: %s  polytype=%s  crystal_system=%s  score=%.1f%%",
                     sub_candidate.compound_name,
-                    getattr(sub_candidate, "crystal_system", "Unknown"),
+                    getattr(sub_candidate, "polytype", "?"),
+                    getattr(sub_candidate, "crystal_system", "?"),
                     sub_candidate.similarity_score,
+                )
+            else:
+                logger.debug(
+                    "Secondary candidate rejected (score %.1f%% < threshold %.1f%%): %s",
+                    sub_candidate.similarity_score,
+                    self.secondary_threshold,
+                    sub_candidate.compound_name,
                 )
 
         return result

@@ -6,6 +6,7 @@ export default function OverlayGraph({
   intensity = [],
   matchedPeaks = [],
   compoundName = "Standard",
+  yMax = null,  // FIX: explicit ceiling from parent; avoids relying on smoothed intensity max
 }) {
   const hasMatches = matchedPeaks && matchedPeaks.length > 0;
 
@@ -14,6 +15,10 @@ export default function OverlayGraph({
     const maxStd = hasMatches ? Math.max(...matchedPeaks.map((p) => p.intensity_std)) : 1.0;
     return { scaleFactor: maxExp / maxStd, maxExpIntensity: maxExp };
   }, [intensity, matchedPeaks, hasMatches]);
+
+  // FIX: prefer the explicit yMax prop (computed from raw intensity in ResultsPage)
+  // so the Y-axis ceiling is never clipped by smoothing artefacts
+  const yAxisMax = yMax != null ? yMax : maxExpIntensity * 1.15;
 
   const sortedData = useMemo(() => {
     return [...twoTheta].map((x, i) => ({ x: Number(x), y: Number(intensity[i]) })).sort((a, b) => a.x - b.x);
@@ -74,7 +79,8 @@ export default function OverlayGraph({
     yaxis: {
       title: { text: "Intensity (a.u.)", font: { size: 13, family: "Arial, sans-serif" } },
       ticks: "inside", ticklen: 6, tickwidth: 1.2, showline: true, linecolor: "#000000", linewidth: 1.5, mirror: "all",
-      range: [0, maxExpIntensity * 1.15],
+      range: [0, yAxisMax],
+      autorange: false,
     },
     shapes: lines,
     hovermode: "x unified", // Changed to 'x unified' to show both traces on hover
