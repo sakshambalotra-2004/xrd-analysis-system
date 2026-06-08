@@ -3,58 +3,72 @@
  * ================
  * Client-side API helpers for the /api/report endpoints.
  */
+
 import axios from "axios";
 
-const BASE = "/api/report";
+const BASE = "http://127.0.0.1:8000/api/report";
 
 export const reportApi = {
   /**
-   * Return the direct URL to the PDF report for browser download.
-   *
-   * @param {string} fileId
-   * @returns {string} URL
+   * Return direct PDF URL
    */
   getPdfUrl(fileId) {
     return `${BASE}/${fileId}`;
   },
 
   /**
-   * Fetch graph image URLs for a completed analysis.
-   *
-   * @param {string} fileId
-   * @returns {Promise<{ experimental: string, standard: string, overlay: string }>}
+   * Fetch graph image URLs
    */
   async getGraphUrls(fileId) {
-    const { data } = await axios.get(`${BASE}/${fileId}/graphs`);
+    const { data } = await axios.get(
+      `${BASE}/${fileId}/graphs`
+    );
+
     return data;
   },
 
   /**
-   * Fetch a lightweight JSON summary (no file paths).
-   *
-   * @param {string} fileId
-   * @returns {Promise<object>}
+   * Fetch summary
    */
   async getSummary(fileId) {
-    const { data } = await axios.get(`${BASE}/${fileId}/summary`);
+    const { data } = await axios.get(
+      `${BASE}/${fileId}/summary`
+    );
+
     return data;
   },
 
   /**
-   * Programmatically trigger a PDF download in the browser.
-   *
-   * @param {string} fileId
-   * @param {string} [filename]
+   * Download PDF
    */
-  async downloadPdf(fileId, filename = `xrd_report_${fileId}.pdf`) {
-    const response = await axios.get(`${BASE}/${fileId}`, { responseType: "blob" });
-    const url = URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
+  async downloadPdf(
+    fileId,
+    filename = `xrd_report_${fileId}.pdf`
+  ) {
+    const response = await axios.get(
+      `${BASE}/${fileId}`,
+      {
+        responseType: "blob",
+      }
+    );
+
+    const url = URL.createObjectURL(
+      new Blob([response.data], {
+        type: "application/pdf",
+      })
+    );
+
     const a = document.createElement("a");
+
     a.href = url;
     a.download = filename;
+
     document.body.appendChild(a);
+
     a.click();
+
     a.remove();
+
     URL.revokeObjectURL(url);
   },
 };
