@@ -61,6 +61,7 @@ class CrystalAnalysis:
     formula: str = ""
     crystal_system: str = ""
     space_group: str = ""
+    polytype: str = ""          # FIX: explicit field so report_generator can read it directly
     confidence_score: float = 0.0
 
 
@@ -153,10 +154,15 @@ class CrystalAnalyzer:
             result.mean_peak_shift_deg = round(float(np.mean(signed_shifts)), 4) if signed_shifts else 0.0
             result.strain_indicator = self._strain_indicator(result.mean_peak_shift_deg)
 
-            # UPGRADE: Extract polytype from standard card and inject safely
+            # FIX: store polytype as a standalone field so downstream consumers
+            # (report_generator, API response) don't have to parse it out of the
+            # primary_compound string.
             polytype_val = getattr(best_match, "polytype", "")
-            polytype_suffix = f" ({polytype_val})" if polytype_val else ""
+            result.polytype = polytype_val
 
+            # Keep the human-readable compound name clean — only append polytype
+            # suffix when it isn't already embedded in compound_name.
+            polytype_suffix = f" ({polytype_val})" if polytype_val and polytype_val not in best_match.compound_name else ""
             result.primary_compound = f"{best_match.compound_name}{polytype_suffix}"
             result.formula = best_match.formula
             result.crystal_system = best_match.crystal_system

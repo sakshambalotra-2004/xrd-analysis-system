@@ -163,13 +163,14 @@ class ReportGenerator:
 
     def _build_summary(self, a: CrystalAnalysis) -> list:
         cleaned_phases = self._get_descriptive_phases(getattr(a, "detected_phases", []))
-        polytype_val = getattr(a, "polytype", "")
-        compound_display = f"{a.primary_compound} ({polytype_val})" if polytype_val and a.primary_compound else (a.primary_compound or "—")
+        # FIX: read polytype from the dedicated field added to CrystalAnalysis.
+        # primary_compound already contains the polytype suffix when present, so
+        # do NOT re-append it here (that was causing "Silicon Carbide (6H) (6H)").
+        compound_display = a.primary_compound or "—"
 
-        # THE FIX: Wrap all potentially long strings in Paragraphs
         compound_para = Paragraph(compound_display, self._styles["TableCell"])
-        formula_para = Paragraph(a.formula or "—", self._styles["TableCell"])
-        phases_para = Paragraph(", ".join(cleaned_phases) or "—", self._styles["TableCell"])
+        formula_para  = Paragraph(a.formula or "—", self._styles["TableCell"])
+        phases_para   = Paragraph(", ".join(cleaned_phases) or "—", self._styles["TableCell"])
 
         data = [
             ["Compound Identified", compound_para],
@@ -206,7 +207,13 @@ class ReportGenerator:
         ]
 
     def _build_graphs(self, paths: GraphPaths) -> list:
-        story = [Paragraph("XRD Patterns", self._styles["SectionHead"]), Spacer(1, 0.2 * cm)]
+        # FIX: PageBreak before graphs section prevents the three images (each
+        # ~216 pts) from straddling page boundaries or overflowing the summary page.
+        story = [
+            PageBreak(),
+            Paragraph("XRD Patterns", self._styles["SectionHead"]),
+            Spacer(1, 0.2 * cm),
+        ]
         img_w = PAGE_W - 2 * MARGIN
         for label, fpath in [
             ("Experimental XRD Pattern", paths.experimental),
@@ -360,10 +367,12 @@ class ReportGenerator:
         ]
 
     def _build_crystal_info(self, a: CrystalAnalysis) -> list:
-        # THE FIX: Wrap long text fields
         compound_para = Paragraph(a.primary_compound or "—", self._styles["TableCell"])
-        polytype_para = Paragraph(getattr(a, "polytype", "—") or "—", self._styles["TableCell"])
-        formula_para = Paragraph(a.formula or "—", self._styles["TableCell"])
+        # FIX: read from the dedicated polytype field (was always '—' before because
+        # CrystalAnalysis had no polytype attribute and getattr returned the default).
+        polytype_val  = getattr(a, "polytype", "") or "—"
+        polytype_para = Paragraph(polytype_val, self._styles["TableCell"])
+        formula_para  = Paragraph(a.formula or "—", self._styles["TableCell"])
 
         rows = [
             ["Property", "Value"],
