@@ -43,7 +43,7 @@ The XRD Compound Identification and Analysis System automates the process of ide
 
 - **Automated Peak Detection** — Identifies significant peaks from noisy XRD patterns with HRXRD rocking curve support
 - **Phase Identification** — Matches experimental peaks to known compound standards using iterative residual matching
-- **Polytype Differentiation** — Specifically isolates and identifies exact crystalline polytypes (e.g., SiC 6H, 4H, 15R, 3C)
+- **Polytype Differentiation** — Specifically isolates and identifies exact crystalline polytypes (e.g., SiC 6H, 4H, 15R-1, 15R-2, 3C, 2H)
 - **Crystallite Size Analysis** — Applies the Scherrer Equation: `D = Kλ / β cos θ`
 - **d-Spacing Calculation** — Uses Bragg's Law: `nλ = 2d sin θ`
 - **Peak Shift Analysis** — Detects strain, stress, doping, and thermal effects
@@ -87,8 +87,7 @@ Database (JSON Standards | SQLite | MongoDB)
 | 7 | `crystal_analyzer.py` | Crystallite size, peak shift, strain indicator, polytype extraction |
 | 8 | `graph_generator.py` | Experimental, standard, and overlay PNG charts via Matplotlib |
 | 9 | `report_generator.py` | Multi-page PDF via ReportLab with polytype-annotated tables |
-| 10 | `llm_service.py` | Automated executive summary via Gemini AI |
-| 11 | `origin_exporter.py` | OriginLab `.opju` project export |
+| 10 | `origin_exporter.py` | OriginLab `.opju` project export |
 
 ---
 
@@ -96,98 +95,144 @@ Database (JSON Standards | SQLite | MongoDB)
 
 ```
 xrd-analysis-system/
+│
 ├── backend/
-│   ├── app.py                    # FastAPI application entry point
-│   ├── config.py                 # Environment configuration
-│   ├── requirements.txt          # Python dependencies
-│   ├── routes/
-│   │   ├── upload_routes.py      # File upload endpoints
-│   │   ├── analysis_routes.py    # Analysis trigger endpoints; returns full_intensity_raw
-│   │   └── report_routes.py      # Report download endpoints
-│   ├── services/
-│   │   ├── csv_reader.py         # CSV ingestion, PANalytical header parsing
-│   │   ├── noise_filter.py       # Adaptive Savitzky-Golay filter
-│   │   ├── peak_detector.py      # Scan-type-aware peak detection
-│   │   ├── peak_matcher.py       # One-to-one database peak matching
-│   │   ├── similarity_engine.py  # Weighted confidence scoring
-│   │   ├── crystal_analyzer.py   # Crystallographic computations + polytype field
-│   │   ├── d_spacing_calculator.py
-│   │   ├── phase_identifier.py   # Primary + secondary phase identification
-│   │   ├── graph_generator.py    # Chart/overlay generation
-│   │   ├── report_generator.py   # PDF report builder
-│   │   ├── origin_exporter.py    # Native OriginLab (.opju) integration
-│   │   ├── llm_service.py        # Gemini AI insight generation
-│   │   └── ml_predictor.py       # ML crystal system classifier
+│   ├── a.py
+│   ├── app.py
+│   ├── config.py
+│   ├── requirements.txt
+│   │
 │   ├── database/
-│   │   ├── standards/            # JSON files per compound (sio2.json, sic_6h.json, …)
-│   │   ├── experimental_data/    # Uploaded CSV files (persisted)
-│   │   └── sqlite/xrd_database.db
-│   ├── models/
-│   │   ├── trained_model.pkl
-│   │   ├── scaler.pkl
-│   │   └── label_encoder.pkl
-│   ├── utils/
-│   │   ├── file_handler.py
-│   │   ├── peak_utils.py
-│   │   ├── graph_utils.py
-│   │   ├── math_utils.py
-│   │   ├── validation.py
-│   │   └── constants.py
+│   │   ├── __init__.py
+│   │   ├── experimental_data/
+│   │   │
+│   │   ├── sqlite/
+│   │   │   ├── db_init.py
+│   │   │   ├── xrd_database.py
+│   │   │   ├── xrd_database.db
+│   │   │   └── __init__.py
+│   │   │
+│   │   └── standards/
+│   │       ├── Graphite_2H_00-041-1487.json
+│   │       ├── Graphite_3R_01-075-2078.json
+│   │       ├── Ni2Si_00-048-1339.json
+│   │       ├── NiSi2_01-086-4983.json
+│   │       ├── NiSi2_cubic_04-019-2896.json
+│   │       ├── NiSi_00-038-0844.json
+│   │       ├── SiC-15R-1_00-022-1301.json
+│   │       ├── SiC-15R-2_04-007-1589.json
+│   │       ├── SiC-2H_00-029-1126.json
+│   │       ├── SiC-3C_00-029-1129.json
+│   │       ├── SiC-4H_00-022-1317.json
+│   │       ├── SiC-6H_01-075-8314.json
+│   │       ├── SiO2_00-012-0708.json
+│   │       ├── SiO2_00-046-1045.json
+│   │       └── __init__.py
+│   │
 │   ├── reports/
-│   │   ├── pdf_reports/
 │   │   ├── graphs/
 │   │   ├── origin_files/
-│   │   └── overlay_images/
-│   └── uploads/
-│       ├── csv/
-│       └── temp/
+│   │   └── pdf_reports/
+│   │
+│   ├── routes/
+│   │   ├── analysis_routes.py
+│   │   ├── report_routes.py
+│   │   └── upload_routes.py
+│   │
+│   ├── services/
+│   │   ├── crystal_analyzer.py
+│   │   ├── csv_reader.py
+│   │   ├── d_spacing_calculator.py
+│   │   ├── graph_generator.py
+│   │   ├── ml_predictor.py
+│   │   ├── noise_filter.py
+│   │   ├── origin_exporter.py
+│   │   ├── peak_detector.py
+│   │   ├── peak_matcher.py
+│   │   ├── phase_identifier.py
+│   │   ├── report_generator.py
+│   │   └── similarity_engine.py
+│   │
+│   ├── uploads/
+│   │   ├── csv/
+│   │   └── temp/
+│   │
+│   └── utils/
+│       ├── constants.py
+│       ├── file_handler.py
+│       ├── graph_utils.py
+│       ├── math_utils.py
+│       ├── peak_utils.py
+│       └── validation.py
 │
 ├── frontend/
+│   │
+│   ├── public/
+│   │   ├── favicon.png
+│   │   └── icons.svg
+│   │
+│   ├── src/
+│   │   ├── App.css
+│   │   ├── App.jsx
+│   │   ├── index.css
+│   │   ├── main.jsx
+│   │   │
+│   │   ├── api/
+│   │   │   ├── analysisApi.js
+│   │   │   ├── reportApi.js
+│   │   │   └── uploadApi.js
+│   │   │
+│   │   ├── assets/
+│   │   │   ├── hero.png
+│   │   │   ├── react.svg
+│   │   │   └── vite.svg
+│   │   │
+│   │   ├── charts/
+│   │   │   ├── ExperimentalChart.jsx
+│   │   │   └── OverlayChart.jsx
+│   │   │
+│   │   ├── components/
+│   │   │   ├── AnalysisSummary.jsx
+│   │   │   ├── ConfidenceCard.jsx
+│   │   │   ├── CrystalInfo.jsx
+│   │   │   ├── MatchResults.jsx
+│   │   │   ├── MultiOverlayGraph.jsx
+│   │   │   ├── Navbar.jsx
+│   │   │   ├── OverlayGraph.jsx
+│   │   │   ├── PeakAlignmentMap.jsx
+│   │   │   ├── PeakTable.jsx
+│   │   │   ├── ProtectedRoute.jsx
+│   │   │   ├── ReportDownload.jsx
+│   │   │   ├── Sidebar.jsx
+│   │   │   ├── UploadBox.jsx
+│   │   │   └── XRDGraph.jsx
+│   │   │
+│   │   ├── pages/
+│   │   │   ├── AnalysisPage.jsx
+│   │   │   ├── ComparisonPage.jsx
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── LoginPage.jsx
+│   │   │   ├── ReportsPage.jsx
+│   │   │   ├── ResultsPage.jsx
+│   │   │   └── UploadPage.jsx
+│   │   │
+│   │   └── styles/
+│   │       └── globals.css
+│   │
 │   ├── package.json
 │   ├── vite.config.js
-│   ├── public/
-│   └── src/
-│       ├── pages/
-│       │   ├── LoginPage.jsx         # Session-authenticated login
-│       │   ├── Dashboard.jsx
-│       │   ├── UploadPage.jsx
-│       │   ├── ResultsPage.jsx       # Displays full_intensity_raw for accurate Y-axis
-│       │   ├── AnalysisPage.jsx
-│       │   ├── ReportsPage.jsx
-│       │   └── ComparisonPage.jsx
-│       ├── components/
-│       │   ├── ProtectedRoute.jsx    # sessionStorage auth guard
-│       │   ├── Navbar.jsx
-│       │   ├── Sidebar.jsx
-│       │   ├── XRDGraph.jsx          # Plotly chart with explicit yMax prop
-│       │   ├── OverlayGraph.jsx      # Overlay chart with yMax + autorange: false
-│       │   ├── PeakTable.jsx
-│       │   ├── ConfidenceCard.jsx
-│       │   └── MultiOverlayGraph.jsx
-│       ├── api/
-│       │   ├── uploadApi.js
-│       │   ├── analysisApi.js
-│       │   └── reportApi.js
-│       └── styles/
-│
-├── datasets/
-│   ├── raw_xrd_patterns/
-│   ├── processed_patterns/
-│   └── training_data/
+│   └── README.md
 │
 ├── tests/
+│   ├── test_analysis.py
 │   ├── test_csv_reader.py
-│   ├── test_peak_detector.py
 │   ├── test_matcher.py
-│   └── test_analysis.py
+│   └── test_peak_detector.py
 │
-├── documentation/
-│   ├── system_design.pdf
-│   ├── api_documentation.pdf
-│   └── workflow.png
-│
+├── ecosystem.config.js
+├── package-lock.json
+├── start_frontend_hidden.vbs
 ├── README.md
-├── LICENSE
 └── .gitignore
 ```
 
@@ -206,7 +251,7 @@ xrd-analysis-system/
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/xrd-analysis-system.git
+git clone https://github.com/sakshambalotra-2004/xrd-analysis-system
 cd xrd-analysis-system/backend
 
 # Create and activate virtual environment
@@ -515,10 +560,10 @@ Add the following configuration:
 ```js
 module.exports = {
   apps: [
-    {
+      { 
       name: "xrd-backend",
       script: "python",
-      args: "-m uvicorn app:app --host 0.0.0.0 --port 8000",
+      args: "-m uvicorn app:app --reload",
       cwd: "./backend",
       interpreter: "none",
     },
