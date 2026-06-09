@@ -306,7 +306,7 @@ class FileHandler:
                 SELECT 
                     a.file_id, a.compound_name, a.formula, a.polytype, 
                     a.crystal_system, a.confidence_score, a.detected_phases,
-                    u.uploaded_at
+                    u.filename, u.uploaded_at
                 FROM analysis_results a
                 JOIN uploads u ON a.file_id = u.file_id
                 ORDER BY u.uploaded_at DESC

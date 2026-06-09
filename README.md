@@ -481,6 +481,164 @@ Test modules cover CSV ingestion, peak detection accuracy, matching logic, and f
 
 ---
 
+
+## Running the System Permanently on Localhost (Windows)
+
+The XRD Analysis System can run continuously in the background without keeping terminal windows open by using **PM2** as a process manager.
+
+### Install PM2
+
+Open Command Prompt as Administrator:
+
+```bash
+npm install -g pm2
+```
+
+---
+
+## PM2 Configuration
+
+Create a file named:
+
+```text
+ecosystem.config.js
+```
+
+in the project root directory:
+
+```text
+xrd-analysis-system/
+```
+
+Add the following configuration:
+
+```js
+module.exports = {
+  apps: [
+    {
+      name: "xrd-backend",
+      script: "python",
+      args: "-m uvicorn app:app --host 0.0.0.0 --port 8000",
+      cwd: "./backend",
+      interpreter: "none",
+    },
+    {
+      name: "xrd-frontend",
+      script: "cmd",
+      args: "/c npm run dev",
+      cwd: "./frontend",
+      interpreter: "none",
+    },
+  ],
+};
+```
+
+---
+
+## Start the System
+
+From the project root:
+
+```bash
+pm2 start ecosystem.config.js
+```
+
+Check running services:
+
+```bash
+pm2 list
+```
+
+Expected output:
+
+```text
+xrd-backend     online
+xrd-frontend    online
+```
+
+---
+
+## Access the Application
+
+| Service      | URL                        |
+| ------------ | -------------------------- |
+| Frontend     | http://localhost:5173      |
+| Backend API  | http://localhost:8000      |
+| Swagger Docs | http://localhost:8000/docs |
+
+---
+
+## Save Running Processes
+
+```bash
+pm2 save
+```
+
+---
+
+## Auto-Start on Windows Login
+
+Create a file:
+
+```text
+start_xrd_system.bat
+```
+
+Add:
+
+```bat
+@echo off
+
+cd /d D:\xrd-analysis-system
+
+pm2 resurrect
+```
+
+Press:
+
+```text
+Windows + R
+```
+
+Type:
+
+```text
+shell:startup
+```
+
+Place a shortcut of `start_xrd_system.bat` inside the Startup folder.
+
+The XRD system will now automatically start in the background whenever Windows starts.
+
+---
+
+## Useful PM2 Commands
+
+### View Running Apps
+
+```bash
+pm2 list
+```
+
+### Restart All Services
+
+```bash
+pm2 restart all
+```
+
+### Stop All Services
+
+```bash
+pm2 stop all
+```
+
+### Remove All Services
+
+```bash
+pm2 delete all
+```
+
+
 ## Future Scope
 
 - AI/ML-based phase prediction with neural networks

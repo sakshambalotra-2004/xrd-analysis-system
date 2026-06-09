@@ -42,6 +42,8 @@ body {
   padding: 28px 32px;
   overflow-y: auto;
   max-width: 1200px;
+  margin: 0 auto;    /* <-- This perfectly centers the container */
+  width: 100%;       /* <-- Ensures it stretches properly on smaller screens */
 }
 
 /* ---- Navbar ---- */

@@ -154,12 +154,23 @@ function ResultRow({ result, onClick }) {
     <button className="db-row" onClick={onClick} style={rr.row}>
       <div style={rr.left}>
         <div style={rr.compound}>
-          {result.compound_name || "Unknown"}
-          {result.polytype && <span style={rr.polytype}> ({result.polytype})</span>}
+          {result.filename
+            ? result.filename.replace(/\.csv$/i, "")
+            : result.compound_name || "Unknown"}
         </div>
         <div style={rr.meta}>
           <span style={rr.idBadge}>{result.file_id?.substring(0, 8) ?? "—"}</span>
           <span style={rr.dot}>·</span>
+          {result.compound_name && (
+            <>
+              <span style={rr.compoundSub}>
+                {result.compound_name}
+                {result.polytype && !(result.compound_name).includes(`(${result.polytype})`)
+                  ? ` (${result.polytype})` : ""}
+              </span>
+              <span style={rr.dot}>·</span>
+            </>
+          )}
           {new Date(result.uploaded_at).toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" })}
         </div>
       </div>
@@ -187,6 +198,7 @@ const rr = {
   polytype: { color:"#6a7a8a", fontWeight:400 },
   meta: { display:"flex", alignItems:"center", gap:7, fontSize:13, color:"#8a9aaa", fontFamily:"'DM Sans',sans-serif" },
   dot: { color:"#c4d0dc" },
+  compoundSub: { color:"#6a7a8a", fontWeight:500, fontSize:12 },
   idBadge: {
     background:"#edf0f4", borderRadius:4, padding:"1px 7px",
     fontSize:12, fontFamily:"'JetBrains Mono',monospace", color:"#6a7a8a",
@@ -209,7 +221,9 @@ export default function Dashboard() {
   const handleQuickUpload = () => navigate("/upload");
   const lastResult = recentResults[0];
   const lastCompoundDisplay = lastResult
-    ? `${lastResult.compound_name || "Unknown"}${lastResult.polytype ? ` (${lastResult.polytype})` : ""}`
+    ? (lastResult.filename
+        ? lastResult.filename.replace(/\.csv$/i, "")
+        : lastResult.compound_name || "Unknown")
     : "—";
   const avgConfidence = useMemo(() => {
     if (!recentResults.length) return "—";
@@ -230,48 +244,52 @@ export default function Dashboard() {
       `}</style>
 
       <div style={pg.page}>
-        {/* Header */}
-        <div style={pg.header}>
-          <div style={pg.headerLeft}>
-            <div style={pg.iconWrap}><IconScatter /></div>
-            <div>
-              <h1 style={pg.title}>XRD Analysis Dashboard</h1>
-              <p style={pg.subtitle}>Phase identification · Powder diffraction · Run history</p>
+        <div style={pg.container}>
+          
+          {/* Header */}
+          <div style={pg.header}>
+            <div style={pg.headerLeft}>
+              <div style={pg.iconWrap}><IconScatter /></div>
+              <div>
+                <h1 style={pg.title}>XRD Analysis Dashboard</h1>
+                <p style={pg.subtitle}>Phase identification · Powder diffraction · Run history</p>
+              </div>
             </div>
+            <button className="db-new" onClick={handleQuickUpload} style={pg.newBtn} title="New Analysis">
+              <IconPlus />
+            </button>
           </div>
-          <button className="db-new" onClick={handleQuickUpload} style={pg.newBtn} title="New Analysis">
-            <IconPlus />
-          </button>
-        </div>
 
-        {/* Stats */}
-        <div style={pg.statsGrid}>
-          <StatCard label="Total Analyses"  value={isLoading ? "—" : recentResults.length} Icon={IconScatter}    accent="#1a6fc4" loading={isLoading} />
-          <StatCard label="Avg Confidence"  value={isLoading ? "—" : avgConfidence}         Icon={IconConfidence} accent="#178a55" loading={isLoading} />
-          <StatCard label="Last Phase"      value={isLoading ? "—" : lastCompoundDisplay}   Icon={IconPhase}      accent="#b85010" loading={isLoading} />
-        </div>
+          {/* Stats */}
+          <div style={pg.statsGrid}>
+            <StatCard label="Total Analyses"  value={isLoading ? "—" : recentResults.length} Icon={IconScatter}    accent="#1a6fc4" loading={isLoading} />
+            <StatCard label="Avg Confidence"  value={isLoading ? "—" : avgConfidence}         Icon={IconConfidence} accent="#178a55" loading={isLoading} />
+            <StatCard label="Last Phase"      value={isLoading ? "—" : lastCompoundDisplay}   Icon={IconPhase}      accent="#b85010" loading={isLoading} />
+          </div>
 
-        {/* History */}
-        <div style={pg.section}>
-          <div style={pg.sectionHeader}>
-            <span style={pg.sectionLabel}>Database History</span>
-            {!isLoading && (
-              <span style={pg.sectionCount}>{recentResults.length} record{recentResults.length !== 1 ? "s" : ""}</span>
+          {/* History */}
+          <div style={pg.section}>
+            <div style={pg.sectionHeader}>
+              <span style={pg.sectionLabel}>Database History</span>
+              {!isLoading && (
+                <span style={pg.sectionCount}>{recentResults.length} record{recentResults.length !== 1 ? "s" : ""}</span>
+              )}
+            </div>
+            {isLoading ? (
+              <div style={pg.list}>{Array.from({length:3}).map((_,i)=><SkeletonCard key={i}/>)}</div>
+            ) : recentResults.length === 0 ? (
+              <div style={{padding:20}}><EmptyState onUpload={handleQuickUpload}/></div>
+            ) : (
+              <div style={pg.list}>
+                {recentResults.map((r,i) => (
+                  <div key={r.file_id} style={{animation:`fadeUp 0.22s ease both`,animationDelay:`${i*0.05}s`}}>
+                    <ResultRow result={r} onClick={() => navigate(`/results/${r.file_id}`)} />
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-          {isLoading ? (
-            <div style={pg.list}>{Array.from({length:3}).map((_,i)=><SkeletonCard key={i}/>)}</div>
-          ) : recentResults.length === 0 ? (
-            <div style={{padding:20}}><EmptyState onUpload={handleQuickUpload}/></div>
-          ) : (
-            <div style={pg.list}>
-              {recentResults.map((r,i) => (
-                <div key={r.file_id} style={{animation:`fadeUp 0.22s ease both`,animationDelay:`${i*0.05}s`}}>
-                  <ResultRow result={r} onClick={() => navigate(`/results/${r.file_id}`)} />
-                </div>
-              ))}
-            </div>
-          )}
+          
         </div>
       </div>
     </>
@@ -280,9 +298,13 @@ export default function Dashboard() {
 
 const pg = {
   page: {
-    minHeight:"100vh", background:"#eef1f5",
-    fontFamily:"'DM Sans',sans-serif", color:"#111d2b",
-    padding:"32px 36px",
+    minHeight: "calc(100vh - 52px)", 
+    padding: "32px 36px",
+  },
+  container: {
+    maxWidth: "1100px",
+    margin: "0 auto",
+    width: "100%",
   },
   header: {
     display:"flex", alignItems:"center", justifyContent:"space-between",
